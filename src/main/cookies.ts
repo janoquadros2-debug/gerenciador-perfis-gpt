@@ -93,21 +93,29 @@ function clicarNoAviso(modo: 'aceitar' | 'recusar'): boolean {
     const st = getComputedStyle(el as HTMLElement)
     return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'
   }
+  // Inclui componentes com shadow DOM aberto, usados por alguns avisos modernos.
+  const raizes: Array<Document | ShadowRoot> = [document]
+  for (const raiz of raizes) {
+    if (raizes.length > 24) break
+    for (const elemento of [...raiz.querySelectorAll('*')].slice(0, 300)) {
+      if (elemento.shadowRoot) raizes.push(elemento.shadowRoot)
+    }
+  }
   for (const sel of SELETORES[modo]) {
-    const el = document.querySelector(sel)
+    const el = raizes.map((raiz) => raiz.querySelector(sel)).find(Boolean)
     if (el && visivel(el)) {
       ;(el as HTMLElement).click()
       return true
     }
   }
   // genérico: só botões que estão dentro de algo que fala de cookies/privacidade
-  const botoes = [...document.querySelectorAll('button, [role="button"], a.button, input[type="button"], input[type="submit"]')]
+  const botoes = raizes.flatMap((raiz) => [...raiz.querySelectorAll('button, [role="button"], a.button, input[type="button"], input[type="submit"]')]).slice(0, 400)
   for (const b of botoes) {
     const texto = ((b as HTMLInputElement).value || b.textContent || '').replace(/\s+/g, ' ').trim()
     if (!texto || texto.length > 40 || !TEXTOS[modo].test(texto) || !visivel(b)) continue
     let pai: Element | null = b
     let fala = false
-    for (let i = 0; i < 8 && pai; i++, pai = pai.parentElement) {
+    for (let i = 0; i < 8 && pai; i++, pai = pai.parentElement ?? (pai.getRootNode() instanceof ShadowRoot ? (pai.getRootNode() as ShadowRoot).host : null)) {
       if (/cookie|consent|privacidade|privacy|gdpr|lgpd|datenschutz|confidentialité|privacidad|riservatezza|prywatn|конфиденц|файл|gizlilik|プライバシー|隐私|개인정보/i.test(`${pai.id} ${pai.className} ${pai.getAttribute?.('aria-label') ?? ''} ${(pai.textContent ?? '').slice(0, 600)}`)) {
         fala = true
         break
@@ -137,13 +145,15 @@ function vigiarPagina(pagina: Page, modo: () => ModoCookies, aoClicar: () => voi
   let ocupado = false
   let tratado = false
   let tentativas = 0
+  let ultimaAcao = 0
   const checar = async () => {
     if (pagina.isClosed()) { clearInterval(timer); return }
-    if (ocupado || tratado || modo() === 'desligado') return
+    if (ocupado || (tratado && Date.now() - ultimaAcao < 30000) || modo() === 'desligado') return
     ocupado = true
     try {
       if (await tentarEmTodos(pagina, modo() as 'aceitar' | 'recusar')) {
         tratado = true
+        ultimaAcao = Date.now()
         aoClicar()
       }
     } catch {
@@ -153,9 +163,10 @@ function vigiarPagina(pagina: Page, modo: () => ModoCookies, aoClicar: () => voi
   const aoCarregar = () => { tratado = false; tentativas = 0; void checar() }
   const timer = setInterval(() => {
     if (pagina.isClosed()) { clearInterval(timer); return }
-    if (!tratado && tentativas++ < 20) void checar()
-  }, 3000)
+    if (tentativas++ < 120) void checar()
+  }, 5000)
   pagina.on('load', aoCarregar)
+  pagina.on('domcontentloaded', aoCarregar)
   pagina.once('close', () => clearInterval(timer))
   setTimeout(() => { if (!pagina.isClosed()) void checar() }, 1200)
 }
