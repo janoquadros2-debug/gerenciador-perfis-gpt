@@ -223,6 +223,21 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   pausar: () => motor.pausar(),
   retomar: () => motor.retomar(),
   organizarTodos: () => motor.organizarTodos(),
+  escolherGrupoJanelas: (grupo: number) => motor.escolherGrupo(grupo),
+  diagnosticarProxyPerfil: (slot: number) => motor.diagnosticarProxy(slot),
+  diagnosticoRedeLocal: () => ({
+    versao: app.getVersion(), edicao: EDICAO, hora: Date.now(),
+    navegadores: motor.estado().navegadores.length, fila: motor.estado().fila
+  }),
+  diagnosticoRede: async () => {
+    if (rede.status.papel !== 'principal') return {
+      ok: true, local: true, versao: app.getVersion(), navegadores: motor.estado().navegadores.length
+    }
+    if (!rede.conectado) throw new Error('PC secundário não conectado')
+    const inicio = Date.now()
+    const r = await rede.chamar('diagnosticoRedeLocal', [], 10000)
+    return { ok: true, local: false, latenciaMs: Date.now() - inicio, remoto: r }
+  },
   trazerParaFrente: (slot: number) => motor.trazerParaFrente(slot),
   abasNavegador: (slot: number) => motor.abas(slot),
   escolherAba: (slot: number, i: number) => motor.escolherAba(slot, i),
@@ -410,7 +425,7 @@ const LOCAIS = new Set([
   'sugestoes', 'adicionarSugestao', 'apagarSugestao', 'abrirPastaLogs',
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
   'sunoJaSalvos', 'sunoSalvar', 'sunoLog', 'sunoStatus', 'sunoEntrar', 'sunoAbrir', 'sunoFechar', 'sunoApi', 'sunoPreencher', 'sunoPedido', 'sunoEsquecerPedido', 'sunoGuardarSozinho', 'sunoNovas', 'sunoPuxarVistas',
-  'hardwareLocal', 'hardwareTodos',
+  'hardwareLocal', 'hardwareTodos', 'diagnosticoRede',
   'obsConfig', 'salvarObsConfig', 'obsStatus', 'obsAbrir', 'obsCena', 'obsPrincipal', 'obsCanal', 'obsTodos', 'promptConfig', 'salvarPromptConfig', 'gerarPrompt'
 ])
 
