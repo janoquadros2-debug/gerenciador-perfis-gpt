@@ -56,30 +56,44 @@ export function testarProxy(p: Proxy, tempoLimite = 12000): Promise<ResultadoTes
   const agent = p.tipo === 'socks5' ? new SocksProxyAgent(urlDoProxy(p)) : new HttpsProxyAgent(urlDoProxy(p))
   const inicio = Date.now()
   return new Promise((resolve) => {
-    const fim = (r: Omit<ResultadoTesteProxy, 'quando'>) => resolve({ ...r, quando: Date.now() })
+    let finalizado = false
+    const fim = (r: Omit<ResultadoTesteProxy, 'quando'>) => {
+      if (finalizado) return
+      finalizado = true
+      resolve({ ...r, quando: Date.now() })
+    }
     const req = https.get('https://ipwho.is/', { agent, timeout: tempoLimite }, (res) => {
       let corpo = ''
       res.on('data', (c) => (corpo += c))
       res.on('end', () => {
+        const httpStatus = res.statusCode ?? 0
+        if (httpStatus !== 200) {
+          fim({ ok: false, erro: httpStatus === 407 ? 'Autenticação do proxy recusada' : `HTTP ${httpStatus} no teste`, categoria: httpStatus === 407 ? 'autenticacao' : 'http', httpStatus, ms: Date.now() - inicio })
+          return
+        }
         try {
           const j = JSON.parse(corpo)
-          fim({ ok: true, ip: j.ip, pais: j.country, cidade: j.city, ms: Date.now() - inicio })
+          if (!j.ip || j.success === false) fim({ ok: false, erro: 'IP de saída não confirmado', categoria: 'resposta', ms: Date.now() - inicio })
+          else fim({ ok: true, ip: j.ip, pais: j.country, cidade: j.city, ms: Date.now() - inicio, categoria: 'ok', httpStatus })
         } catch {
-          fim({ ok: false, erro: 'Resposta inesperada do teste' })
+          fim({ ok: false, erro: 'Resposta inesperada do teste', categoria: 'resposta' })
         }
       })
     })
     req.on('timeout', () => {
       req.destroy()
-      fim({ ok: false, erro: 'Tempo esgotado' })
+      fim({ ok: false, erro: 'Tempo esgotado', categoria: 'tempo', ms: Date.now() - inicio })
     })
     req.on('error', (e: any) => {
       const msg = String(e?.message ?? e)
-      let erro = 'Não conectou'
-      if (/407|auth/i.test(msg)) erro = 'Usuário ou senha incorretos'
-      else if (/ECONNREFUSED/.test(msg)) erro = 'Conexão recusada'
-      else if (/ENOTFOUND/.test(msg)) erro = 'Endereço não encontrado'
-      fim({ ok: false, erro })
+      let erro = 'Proxy inacessível ou conexão indisponível'
+      let categoria: NonNullable<ResultadoTesteProxy['categoria']> = 'conexao'
+      if (/407|auth|credentials/i.test(msg)) { erro = 'Usuário ou senha do proxy incorretos'; categoria = 'autenticacao' }
+      else if (/ENOTFOUND|EAI_AGAIN/i.test(msg)) { erro = 'DNS do proxy não encontrado'; categoria = 'dns' }
+      else if (/TIMEOUT|ETIMEDOUT/i.test(msg)) { erro = 'Proxy demorou a responder'; categoria = 'tempo' }
+      else if (/ECONNREFUSED/i.test(msg)) erro = 'Proxy recusou a conexão'
+      else if (/ECONNRESET|EPIPE/i.test(msg)) erro = 'Conexão encerrada no teste'
+      fim({ ok: false, erro, categoria, ms: Date.now() - inicio })
     })
   })
 }
