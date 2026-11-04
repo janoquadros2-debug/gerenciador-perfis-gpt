@@ -634,10 +634,28 @@ export class Motor extends EventEmitter {
     // O Dolphin frequentemente retorna o tipo HTTP no lugar de HTTPS e não devolve
     // as credenciais; a comparação literal com a lista salva gerava falso erro.
     const lido = lerLinha(endereco, 'http')
-    if (!lido) throw new Error('O endereço do proxy do navegador é inválido')
-    const proxy = store.proxies.find((p) => p.host.toLowerCase() === lido.host.toLowerCase() && p.porta === lido.porta)
+    const host = endereco.replace(/^[a-z0-9]+:\/\//i, '').split('@').pop()?.split(':')[0]?.toLowerCase()
+    const proxy = (lido
+      ? store.proxies.find((p) => p.host.toLowerCase() === lido.host.toLowerCase() && p.porta === lido.porta)
+      : store.proxies.find((p) => p.host.toLowerCase() === host))
       ?? lido
-    const resultado = await testarProxy(proxy, 12000)
+    let resultado: import('../shared/types').ResultadoTesteProxy
+    if (proxy && proxy.porta >= 1 && proxy.porta <= 65535) {
+      resultado = { ...await testarProxy(proxy, 12000), metodo: 'direto' }
+    } else if (s.browser?.connected) {
+      // Quando o Dolphin não fornece porta/credenciais, testar a conexão
+      // real do próprio navegador, em vez de tentar montar uma URL inválida.
+      const inicio = Date.now()
+      try {
+        const ip = await conferirIp(s.browser)
+        resultado = { ok: !!ip.ip, ip: ip.ip, pais: ip.pais, ms: Date.now() - inicio,
+          quando: Date.now(), categoria: ip.ip ? 'ok' : 'resposta', metodo: 'navegador',
+          erro: ip.ip ? undefined : 'IP de saída não foi confirmado' }
+      } catch {
+        resultado = { ok: false, quando: Date.now(), categoria: 'conexao', metodo: 'navegador',
+          erro: 'Não foi possível verificar a conexão pelo navegador. O Dolphin não forneceu a porta do proxy.' }
+      }
+    } else throw new Error('Proxy sem porta e navegador desconectado: não é possível testar')
     s.info.diagnosticoProxy = resultado
     this.registrar(s, 'proxy', resultado.ok ? `Teste de proxy OK (${resultado.ms ?? '?'} ms)` : `Teste de proxy: ${resultado.erro ?? 'falha'}`)
     this.avisarMudanca()
