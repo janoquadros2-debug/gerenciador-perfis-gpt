@@ -49,6 +49,12 @@ export function Configuracoes({ abaInicial }: { abaInicial?: string }) {
           <section className="painel" style={{ gap: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Opcao titulo="Conferir o IP de cada perfil" desc="Ao abrir, verifica o IP de saída e o país e mostra na aba Ao vivo." ligada={cfg.conferirIp} aoMudar={(v) => salvar({ conferirIp: v })} />
             <Opcao titulo="Testar proxy antes de abrir" desc="Desligado: os perfis abrem direto, sem esperar teste." ligada={cfg.testarProxyAntes} aoMudar={(v) => salvar({ testarProxyAntes: v })} />
+            <Opcao
+              titulo="Manter todas as janelas ativas, mesmo cobertas"
+              desc="Evita a economia de recursos do Chrome quando uma janela está atrás de outra ou minimizada. Pode aumentar o uso de CPU e GPU. Aplica-se aos navegadores abertos pelo programa; para perfis já abertos, feche e abra novamente."
+              ligada={cfg.manterAtivas !== false}
+              aoMudar={(v) => salvar({ manterAtivas: v })}
+            />
             <Opcao titulo="Organizar janelas ao abrir" desc="Usa a grade definida na aba Janelas." ligada={cfg.janelas.ativo} aoMudar={(v) => salvar({ janelas: { ...cfg.janelas, ativo: v } })} />
             <Opcao titulo="Reabrir se fechar ou cair" desc={`Tenta até ${cfg.tentativasReabrir} vezes. Navegadores que você encerrar não são reabertos.`} ligada={cfg.reabrirSeCair} aoMudar={(v) => salvar({ reabrirSeCair: v })} />
             {cfg.reabrirSeCair && (
