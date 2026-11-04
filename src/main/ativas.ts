@@ -27,30 +27,39 @@ const SEMPRE_VISIVEL = `(() => {
 })()`
 
 async function ativarPagina(p: Page) {
-  if ((p as any).__ativa) return
-  ;(p as any).__ativa = true
+  if (p.isClosed()) return
+  if (!(p as any).__ativa) {
+    try {
+      await p.evaluateOnNewDocument(SEMPRE_VISIVEL)
+      ;(p as any).__ativa = true
+    } catch { return }
+  }
+  // Não garantir prioridade de CPU/GPU: a plataforma e o Windows ainda podem limitar o vídeo.
+  await p.evaluate(SEMPRE_VISIVEL).catch(() => undefined)
+  const cdp = await p.createCDPSession().catch(() => null)
+  if (!cdp) return
   try {
-    await p.evaluateOnNewDocument(SEMPRE_VISIVEL)
-    await p.evaluate(SEMPRE_VISIVEL).catch(() => undefined)
-    const cdp = await p.createCDPSession()
     await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => undefined)
     await cdp.send('Page.setWebLifecycleState', { state: 'active' }).catch(() => undefined)
-  } catch {
-    /* aba fechando: ignora */
-  }
+  } finally { await cdp.detach().catch(() => undefined) }
 }
 
 export async function manterAtivas(browser: Browser) {
-  for (const p of await browser.pages()) ativarPagina(p)
+  for (const p of await browser.pages()) await ativarPagina(p)
   browser.on('targetcreated', async (t) => {
     const p = await t.page().catch(() => null)
     if (p) await ativarPagina(p)
   })
   // Verifica novas abas e navegações sem forçar foco visível no Windows.
+  let ocupado = false
   const timer = setInterval(async () => {
+    if (ocupado) return
+    ocupado = true
+    try {
     if (!browser.connected) { clearInterval(timer); return }
     const paginas = await browser.pages().catch(() => [] as Page[])
     for (const p of paginas) if (!p.isClosed()) await ativarPagina(p)
+    } catch { /* navegador encerrando */ } finally { ocupado = false }
   }, 60000)
   browser.once('disconnected', () => clearInterval(timer))
 }
