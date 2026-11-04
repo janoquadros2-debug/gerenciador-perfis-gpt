@@ -1,13 +1,13 @@
 // O "motor": abre, acompanha, reabre, substitui e encerra os navegadores.
 import { EventEmitter } from 'node:events'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
-import type { EstadoMotor, Navegador, Perfil, Proxy, TempoAberto } from '../shared/types'
+import type { EstadoMotor, Navegador, Perfil, Proxy, TempoAberto, HistoricoPerfil } from '../shared/types'
 import { sortearDuracao } from '../shared/sorteio'
 import { type ModoCookies, vigiarCookies } from './cookies'
 import { manterAtivas } from './ativas'
 import { lerAmostraMidia, type AmostraMidia } from './diagnostico'
 import * as dolphin from './dolphin'
-import { retanguloDoSlot } from './janelas'
+import { retanguloDoSlot, capacidadeGrade } from './janelas'
 import { ProxiesEsgotados, proximoProxy, proxyParaTexto, testarProxy } from './proxies'
 import { logErro, logInfo, logOk, logAviso } from './log'
 import { limparRam, usoRam } from './ram'
@@ -95,8 +95,23 @@ export class Motor extends EventEmitter {
       fila: this.fila.length,
       ram: this.ram(),
       avisos: this.avisos.slice(-5),
-      proxiesEsgotados: this.proxiesEsgotados
+      proxiesEsgotados: this.proxiesEsgotados,
+      capacidadePorGrupo: capacidadeGrade(store.config.janelas),
+      totalGrupos: Math.max(1, Math.ceil(Math.max(0, ...this.sessoes.keys()) / capacidadeGrade(store.config.janelas))),
+      grupoVisivel: store.config.janelas.grupoVisivel ?? 0
     }
+  }
+
+  private historicos = new Map<number, HistoricoPerfil[]>()
+
+  private registrar(s: Sessao, categoria: HistoricoPerfil['categoria'], texto: string) {
+    const historico = this.historicos.get(s.perfil.id) ?? []
+    const anterior = historico[historico.length - 1]
+    if (anterior?.texto === texto && Date.now() - anterior.quando < 30000) return
+    historico.push({ quando: Date.now(), categoria, texto })
+    if (historico.length > 60) historico.splice(0, historico.length - 60)
+    this.historicos.set(s.perfil.id, historico)
+    s.info.historico = [...historico]
   }
 
   private avisarMudanca() {
@@ -254,6 +269,8 @@ export class Motor extends EventEmitter {
         reabreAoAcabar: (item.aoAcabar ?? anterior?.aoAcabar) === 'reabrir' && !!(item.tempoAberto ?? anterior?.tempoAberto)
       }
     }
+    sessao.info.historico = [...(this.historicos.get(item.perfil.id) ?? [])]
+    this.registrar(sessao, 'abertura', 'Iniciando navegador')
     this.sessoes.set(slot, sessao)
     this.avisarMudanca()
     const quem = `Navegador #${slot}`
@@ -266,6 +283,7 @@ export class Motor extends EventEmitter {
       if (proxy !== undefined) {
         await dolphin.trocarProxyDoPerfil(item.perfil.id, proxy)
         sessao.info.proxy = proxy ? proxyParaTexto(proxy) : 'Sem proxy'
+        this.registrar(sessao, 'proxy', proxy ? `Proxy configurado: ${proxy.host}:${proxy.porta}` : 'Sem proxy')
         logInfo(quem, `${item.perfil.nome}: proxy ${proxy ? `${proxy.host}:${proxy.porta}` : 'nenhum (seu IP)'}`)
       }
 
@@ -279,7 +297,11 @@ export class Motor extends EventEmitter {
       // aviso de cookies: aceita (ou recusa) sozinho, em todas as abas
       if (sessao.cookies && sessao.cookies !== 'desligado')
         vigiarCookies(browser, () => sessao.cookies ?? 'desligado', (url) =>
-          logInfo(quem, `${item.perfil.nome}: ${sessao.cookies === 'aceitar' ? 'aceitei' : 'recusei'} o aviso de cookies em ${url.replace(/^https?:\/\//, '').slice(0, 60)}.`)
+          {
+            logInfo(quem, `${item.perfil.nome}: ${sessao.cookies === 'aceitar' ? 'aceitei' : 'recusei'} o aviso de cookies em ${url.replace(/^https?:\/\//, '').slice(0, 60)}.`)
+            this.registrar(sessao, 'cookies', 'Preferência de cookies aplicada em ' + url.slice(0, 100))
+            this.avisarMudanca()
+          }
         ).catch(() => undefined)
 
       // 3. posiciona a janela
@@ -329,6 +351,7 @@ export class Motor extends EventEmitter {
       // F5 automático: marca o primeiro
       if (sessao.recarregar) sessao.info.proximoF5 = Date.now() + (sortearDuracao(sessao.recarregar) ?? 0)
       sessao.info.status = 'ok'
+      this.registrar(sessao, 'abertura', 'Navegador aberto e página carregada')
       sessao.info.erro = undefined
       logOk(
         quem,
@@ -346,6 +369,7 @@ export class Motor extends EventEmitter {
         return
       }
       sessao.info.status = 'erro'
+      this.registrar(sessao, 'erro', traduzirErro(e))
       sessao.info.erro = traduzirErro(e)
       logErro(quem, `${item.perfil.nome} não abriu: ${sessao.info.erro}`)
       // se o problema foi ao carregar o site, o verificador tira o erro sozinho quando o site voltar
@@ -438,6 +462,10 @@ export class Motor extends EventEmitter {
       alterados++
     }
     if (alterados) {
+      for (const slot of slots) {
+        const s = this.sessoes.get(slot)
+        if (s) this.registrar(s, 'temporizador', `${tipo} ${tempo.modo === 'sem-limite' ? 'desativado' : 'reprogramado'}`)
+      }
       logInfo('Ao vivo', `${tipo === 'f5' ? 'F5' : 'Fechamento'}: temporizador ${tempo.modo === 'sem-limite' ? 'desligado' : 'ajustado'} em ${alterados} perfis.`)
       this.avisarMudanca()
     }
@@ -570,7 +598,35 @@ export class Motor extends EventEmitter {
   }
 
   async organizarTodos() {
-    await Promise.all([...this.sessoes.keys()].map((slot) => this.posicionar(slot).catch(() => undefined)))
+    const slots = [...this.sessoes.keys()].sort((a, b) => a - b)
+    const capacidade = capacidadeGrade(store.config.janelas)
+    const grupoVisivel = Math.max(0, store.config.janelas.grupoVisivel ?? 0)
+    // Posicionar os outros grupos primeiro, e o grupo selecionado por último.
+    const outros = slots.filter((slot) => Math.floor((slot - 1) / capacidade) !== grupoVisivel)
+    const principais = slots.filter((slot) => Math.floor((slot - 1) / capacidade) === grupoVisivel)
+    for (const slot of [...outros, ...principais]) await this.posicionar(slot).catch(() => undefined)
+    for (const slot of principais) await this.trazerParaFrente(slot).catch(() => undefined)
+  }
+
+  async escolherGrupo(grupo: number) {
+    const total = Math.max(1, this.estado().totalGrupos ?? 1)
+    if (!Number.isInteger(grupo) || grupo < 0 || grupo >= total) throw new Error('Grupo de janelas inválido')
+    store.setConfig({ janelas: { ...store.config.janelas, grupoVisivel: grupo } })
+    await this.organizarTodos()
+    this.avisarMudanca()
+    return { grupo, total }
+  }
+
+  async diagnosticarProxy(slot: number) {
+    const s = this.sessoes.get(slot)
+    if (!s) throw new Error('Perfil não está aberto')
+    const proxy = store.proxies.find((p) => proxyParaTexto(p) === s.info.proxy)
+    if (!proxy) throw new Error('O proxy deste navegador não está na lista com credenciais disponíveis para teste')
+    const resultado = await testarProxy(proxy, 12000)
+    s.info.diagnosticoProxy = resultado
+    this.registrar(s, 'proxy', resultado.ok ? `Teste de proxy OK (${resultado.ms ?? '?'} ms)` : `Teste de proxy: ${resultado.erro ?? 'falha'}`)
+    this.avisarMudanca()
+    return resultado
   }
 
   async trazerParaFrente(slot: number) {
@@ -601,6 +657,7 @@ export class Motor extends EventEmitter {
     // só registra quando muda (de OK para falha, ou um erro diferente)
     if (s.info.siteOk !== false || s.info.erro !== erro) logErro(`Navegador #${s.info.slot}`, `${s.perfil.nome}: falha no site ${s.info.url ?? ''} · ${erro}`)
     s.info.siteOk = false
+    this.registrar(s, 'site', erro)
     s.info.verificadoEm = Date.now()
     if (s.info.status === 'ok' || s.info.erroDoSite) {
       s.info.status = 'erro'
@@ -611,6 +668,7 @@ export class Motor extends EventEmitter {
   }
 
   private siteVoltou(s: Sessao) {
+    if (s.info.siteOk === false) this.registrar(s, 'site', 'Página voltou a responder')
     if (s.info.siteOk === false) logOk(`Navegador #${s.info.slot}`, `${s.perfil.nome}: o site voltou a carregar (${s.info.url ?? ''}).`)
     s.info.siteOk = true
     s.info.verificadoEm = Date.now()
@@ -706,6 +764,8 @@ export class Motor extends EventEmitter {
       s.info.reproducao = 'inconclusivo'
       s.info.reproducaoDetalhe = 'Aguardando confirmação de avanço do vídeo'
     }
+    if (anteriorStatus && anteriorStatus !== s.info.reproducao && s.info.reproducao !== 'inconclusivo')
+      this.registrar(s, 'video', s.info.reproducaoDetalhe ?? 'Estado de mídia alterado')
     s.amostraMidia = atual
     s.amostraEm = agora
     if (anteriorStatus && anteriorStatus !== s.info.reproducao && s.info.reproducao !== 'inconclusivo') {
