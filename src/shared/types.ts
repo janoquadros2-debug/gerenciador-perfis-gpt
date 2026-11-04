@@ -71,7 +71,8 @@ export interface Navegador {
   reproducaoEm?: number // instante da última medição
   reproducaoDetalhe?: string
   avisoCookies?: boolean
-  diagnosticoProxy?: ResultadoTesteProxy
+  anuncioProvavel?: boolean // indicador visual de anúncio: estimativa, não confirmação
+  diagnosticoProxy?:  ResultadoTesteProxy
   historico?: HistoricoPerfil[]
 }
 
