@@ -15,6 +15,8 @@ export function PcSecundario({ status }: { status: StatusRede | null }) {
   const [achados, setAchados] = useState<PcEncontrado[] | null>(null)
   const [endereco, setEndereco] = useState(status?.endereco ?? '')
   const [codigo, setCodigo] = useState('')
+  const [testandoLigacao, setTestandoLigacao] = useState(false)
+  const [resultadoLigacao, setResultadoLigacao] = useState('')
   if (!status) return null
 
   const mudarPapel = async (papel: PapelPc) => {
@@ -81,6 +83,21 @@ export function PcSecundario({ status }: { status: StatusRede | null }) {
                 : status.erro ?? 'Ainda não conectado.'}
           </div>
 
+          {status.conectado && (
+            <div className="linha" style={{ gap: 10 }}>
+              <button className="btn" disabled={testandoLigacao} onClick={async () => {
+                setTestandoLigacao(true)
+                setResultadoLigacao('')
+                try {
+                  const r = await chamar<{ ok: boolean; latenciaMs: number; remoto: { versao: string; navegadores: number; fila: number } }>('diagnosticoRede')
+                  setResultadoLigacao(`Conexão OK · ${r.latenciaMs} ms · secundário v${r.remoto.versao} · ${r.remoto.navegadores} navegadores · ${r.remoto.fila} na fila`)
+                } catch (e) {
+                  setResultadoLigacao('Falha: ' + String(e instanceof Error ? e.message : e))
+                } finally { setTestandoLigacao(false) }
+              }}>{testandoLigacao ? 'Testando…' : 'Testar ligação entre PCs'}</button>
+              {resultadoLigacao && <span className="dica">{resultadoLigacao}</span>}
+            </div>
+          )}
           <div className="linha">
             <button className="btn primario" disabled={buscando} onClick={procurar}>{buscando ? 'Procurando…' : 'Procurar na rede'}</button>
             {achados && !achados.length && <span className="dica">Nenhum PC secundário encontrado. Ele está com o programa aberto no modo Secundário?</span>}
