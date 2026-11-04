@@ -93,7 +93,7 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     const cfg = store.setConfig(parcial)
     if (parcial.tokenDolphin !== undefined && parcial.tokenDolphin !== antes.tokenDolphin) dolphin.esquecerLogin()
     if (parcial.miniaturas) motor.agendarMiniaturas()
-    if (parcial.intervaloVerificacao !== undefined) motor.agendarVerificacao()
+    if (parcial.intervaloVerificacao !== undefined || parcial.diagnosticoReproducao !== undefined) motor.agendarVerificacao()
     if (parcial.iniciarComWindows !== undefined) app.setLoginItemSettings({ openAtLogin: parcial.iniciarComWindows })
     return cfg
   },

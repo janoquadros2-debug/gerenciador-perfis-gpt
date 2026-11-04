@@ -146,6 +146,8 @@ function vigiarPagina(pagina: Page, modo: () => ModoCookies, aoClicar: () => voi
         tratado = true
         aoClicar()
       }
+    } catch {
+      // Uma aba em navegação pode invalidar o iframe; repetir depois.
     } finally { ocupado = false }
   }
   const aoCarregar = () => { tratado = false; tentativas = 0; void checar() }

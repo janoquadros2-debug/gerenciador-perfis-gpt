@@ -51,6 +51,8 @@ export const CONFIG_PADRAO: Configuracoes = {
   aberturasSimultaneas: 2,
   intervaloEntreAberturasMs: 1500,
   reorganizarAposLote: true,
+  cookiesPadrao: 'recusar',
+  diagnosticoReproducao: true,
   apagarAoSair: false,
   etiquetaApagarAoSair: 'Testes',
   janelas: {

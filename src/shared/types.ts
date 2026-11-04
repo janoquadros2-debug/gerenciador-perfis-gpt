@@ -36,6 +36,7 @@ export interface Perfil {
 }
 
 export type StatusNavegador = 'abrindo' | 'ok' | 'erro' | 'fechado'
+export type EstadoReproducao = 'analisando' | 'reproduzindo' | 'pausado' | 'carregando' | 'encerrado' | 'sem-video' | 'inconclusivo' | 'erro'
 
 export interface Navegador {
   slot: number // número do navegador (#1, #2, ...)
@@ -58,6 +59,10 @@ export interface Navegador {
   verificadoEm?: number // quando foi a última verificação
   erroDoSite?: boolean // o erro atual veio da verificação do site (some sozinho se o site voltar)
   miniatura?: string // imagem jpeg em base64
+  reproducao?: EstadoReproducao // diagnóstico passivo, nunca inicia o vídeo
+  reproducaoEm?: number // instante da última medição
+  reproducaoDetalhe?: string
+  avisoCookies?: boolean
 }
 
 export interface ConfigJanelas {
@@ -93,6 +98,8 @@ export interface Configuracoes {
   aberturasSimultaneas?: number // limite de 1 a 4 navegadores em abertura
   intervaloEntreAberturasMs?: number // intervalo entre inícios de abertura (0 a 15000 ms)
   reorganizarAposLote?: boolean // reposiciona janelas ao concluir um grupo
+  cookiesPadrao?: 'aceitar' | 'recusar' | 'desligado'
+  diagnosticoReproducao?: boolean
   apagarAoSair: boolean // apaga perfis do Dolphin ao fechar o programa
   etiquetaApagarAoSair: string // só apaga os perfis com esta etiqueta ('' = todos)
   janelas: ConfigJanelas

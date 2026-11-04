@@ -33,6 +33,9 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
     return () => clearInterval(t)
   }, [])
   const comErro = navs.filter((n) => n.status === 'erro').length
+  const reproduzindo = navs.filter((n) => n.reproducao === 'reproduzindo').length
+  const pausados = navs.filter((n) => n.reproducao === 'pausado').length
+  const semConfirmacao = navs.filter((n) => n.status === 'ok' && n.reproducao !== 'reproduzindo' && n.reproducao !== 'pausado').length
   const ok = navs.filter((n) => n.status === 'ok').length
   const alvo = lerNumeros(numeros).filter((n) => navs.some((x) => x.slot === n))
 
@@ -56,12 +59,16 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
 
       <div className="painel">
         <strong>Central de saúde dos navegadores</strong>
-        <span className="dica">Acompanhe carregamento, erros de conexão e fila. A condição de um vídeo não pode ser confirmada apenas pelo estado do navegador.</span>
+        <span className="dica">Diagnóstico passivo: reprodução confirmada pelo avanço do tempo do vídeo, quando disponível. O sistema não inicia o player nem gera visualizações.</span>
         <div className="linha" style={{ gap: 12, flexWrap: 'wrap' }}>
           <span className="selo ok">{ok} navegadores carregados</span>
           <span className="selo neutro">{navs.filter((n) => n.status === 'abrindo').length} iniciando</span>
           <span className="selo erro">{comErro} precisam de atenção</span>
           <span className="selo neutro">{estado?.fila ?? 0} aguardando na fila</span>
+          <span className="selo ok">{reproduzindo} reproduzindo (confirmados)</span>
+          <span className="selo neutro">{pausados} pausados</span>
+          <span className="selo neutro">{semConfirmacao} sem confirmação</span>
+          <span className="selo neutro">{navs.filter((n) => n.avisoCookies).length} avisos de cookies</span>
         </div>
         {comErro > 0 && <span className="dica">Com problema: {navs.filter((n) => n.status === 'erro').slice(0, 12).map((n) => '#' + n.slot + ' ' + (n.erro ?? 'falha')).join(' · ')}</span>}
       </div>
@@ -159,6 +166,14 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir }: { n: Navegador; agora
         <span className="mono url" title={n.url}>{n.url ? n.url.replace(/^https?:\/\//, '') : '—'}</span>
       </div>
       {n.verificadoEm && <span className="dica" style={{ fontSize: 11, marginTop: -6 }}>Verificado há {Math.max(0, Math.round((agora - n.verificadoEm) / 1000))}s</span>}
+      {n.reproducao && (
+        <div className="linha" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <span className={`selo ${n.reproducao === 'reproduzindo' ? 'ok' : n.reproducao === 'erro' ? 'erro' : 'neutro'}`} title={n.reproducaoDetalhe}>
+            Vídeo: {({ analisando: 'analisando', reproduzindo: 'reproduzindo', pausado: 'pausado', carregando: 'carregando', encerrado: 'encerrado', 'sem-video': 'não encontrado', inconclusivo: 'inconclusivo', erro: 'erro' } as const)[n.reproducao]}
+          </span>
+          {n.avisoCookies && <span className="selo erro">Aviso de cookies detectado</span>}
+        </div>
+      )}
       <div className="dados">
         <span>Sistema</span><span>{n.sistema}</span>
         <span>IP de saída</span><span className="mono">{n.ip ?? '—'}</span>

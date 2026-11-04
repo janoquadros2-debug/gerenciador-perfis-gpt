@@ -5,6 +5,7 @@ import type { EstadoMotor, Navegador, Perfil, Proxy, TempoAberto } from '../shar
 import { sortearDuracao } from '../shared/sorteio'
 import { type ModoCookies, vigiarCookies } from './cookies'
 import { manterAtivas } from './ativas'
+import { lerAmostraMidia, type AmostraMidia } from './diagnostico'
 import * as dolphin from './dolphin'
 import { retanguloDoSlot } from './janelas'
 import { ProxiesEsgotados, proximoProxy, proxyParaTexto, testarProxy } from './proxies'
@@ -23,6 +24,8 @@ interface Sessao {
   tempoAberto?: TempoAberto
   aoAcabar?: 'fechar' | 'reabrir'
   fechando?: boolean
+  amostraMidia?: AmostraMidia
+  amostraEm?: number
 }
 
 interface ItemFila {
@@ -235,7 +238,7 @@ export class Motor extends EventEmitter {
       encerradoPorVoce: false,
       // ao reabrir ou substituir no mesmo lugar, o F5 automático continua
       recarregar: item.recarregar ?? anterior?.recarregar,
-      cookies: item.cookies ?? anterior?.cookies,
+      cookies: item.cookies ?? anterior?.cookies ?? cfg.cookiesPadrao ?? 'recusar',
       tempoAberto: item.tempoAberto ?? anterior?.tempoAberto,
       aoAcabar: item.aoAcabar ?? anterior?.aoAcabar,
       info: {
@@ -583,11 +586,12 @@ export class Motor extends EventEmitter {
     if (!seg) return
     this.timerVerificacao = setTimeout(async () => {
       if (!this.pausado) {
-        await Promise.all(
-          [...this.sessoes.values()]
-            .filter((s) => s.browser?.connected && (s.info.status === 'ok' || s.info.erroDoSite))
-            .map((s) => this.verificarSite(s))
-        )
+        // Não bombardear dezenas de navegadores simultaneamente.
+        const alvos = [...this.sessoes.values()].filter((s) => s.browser?.connected && (s.info.status === 'ok' || s.info.erroDoSite))
+        for (let inicio = 0; inicio < alvos.length; inicio += 5) {
+          await Promise.all(alvos.slice(inicio, inicio + 5).map((s) => this.verificarSite(s)))
+          if (this.pausado) break
+        }
         this.avisarMudanca()
       }
       this.agendarVerificacao()
@@ -606,10 +610,64 @@ export class Motor extends EventEmitter {
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('A página parou de responder')), 8000))
       ])
       if (!r.erroChrome && !r.href.startsWith('chrome-error://')) s.info.url = r.href
-      if (r.erroChrome) this.falhaNoSite(s, traduzirErro(r.codigo || 'Falha de conexão'))
-      else this.siteVoltou(s)
+      if (r.erroChrome) {
+        this.falhaNoSite(s, traduzirErro(r.codigo || 'Falha de conexão'))
+        s.info.reproducao = 'erro'
+        s.info.reproducaoDetalhe = 'Página não carregou'
+      } else {
+        this.siteVoltou(s)
+        if (store.config.diagnosticoReproducao !== false) {
+          const amostra = await lerAmostraMidia(p)
+          if (amostra) this.atualizarDiagnostico(s, amostra)
+          else {
+            s.info.reproducao = 'inconclusivo'
+            s.info.reproducaoDetalhe = 'Não foi possível consultar o player'
+            s.info.reproducaoEm = Date.now()
+          }
+        } else {
+          s.info.reproducao = undefined
+          s.info.reproducaoDetalhe = undefined
+        }
+      }
     } catch (e) {
       this.falhaNoSite(s, traduzirErro(e))
+    }
+  }
+
+  private atualizarDiagnostico(s: Sessao, atual: AmostraMidia) {
+    const anterior = s.amostraMidia
+    const antes = s.amostraEm ?? 0
+    const agora = Date.now()
+    const anteriorStatus = s.info.reproducao
+    s.info.avisoCookies = atual.avisoCookies
+    s.info.reproducaoEm = agora
+    if (atual.erro) {
+      s.info.reproducao = 'erro'
+      s.info.reproducaoDetalhe = 'Erro informado pelo elemento de vídeo'
+    } else if (!atual.encontrado) {
+      s.info.reproducao = 'sem-video'
+      s.info.reproducaoDetalhe = 'Nenhum elemento de vídeo visível encontrado'
+    } else if (atual.encerrado) {
+      s.info.reproducao = 'encerrado'
+      s.info.reproducaoDetalhe = 'Reprodução finalizada'
+    } else if (atual.pausado) {
+      s.info.reproducao = 'pausado'
+      s.info.reproducaoDetalhe = 'Player informa pausa'
+    } else if (atual.esperando || atual.pronto < 2) {
+      s.info.reproducao = 'carregando'
+      s.info.reproducaoDetalhe = 'Aguardando dados de vídeo'
+    } else if (anterior?.encontrado && !anterior.pausado && agora - antes >= 4000 && atual.tempo > anterior.tempo + 0.5) {
+      s.info.reproducao = 'reproduzindo'
+      s.info.reproducaoDetalhe = 'O tempo de vídeo avançou entre as verificações'
+    } else {
+      // Não classificar um quadro estático como travamento sem evidência adicional.
+      s.info.reproducao = 'inconclusivo'
+      s.info.reproducaoDetalhe = 'Aguardando confirmação de avanço do vídeo'
+    }
+    s.amostraMidia = atual
+    s.amostraEm = agora
+    if (anteriorStatus && anteriorStatus !== s.info.reproducao && s.info.reproducao !== 'inconclusivo') {
+      logInfo(`Navegador #${s.info.slot}`, `${s.perfil.nome}: ${s.info.reproducaoDetalhe}`)
     }
   }
 
@@ -622,19 +680,20 @@ export class Motor extends EventEmitter {
     }
     this.timerMiniatura = setTimeout(async () => {
       if (!this.pausado) {
-        await Promise.all(
-          [...this.sessoes.values()]
-            .filter((s) => s.info.status === 'ok' && s.browser?.connected)
-            .map(async (s) => {
-              try {
-                const p = await paginaPrincipal(s.browser!)
-                const img = await p.screenshot({ type: 'jpeg', quality: 35, encoding: 'base64', optimizeForSpeed: true })
-                s.info.miniatura = String(img)
-              } catch {
-                /* página ocupada; tenta de novo no próximo ciclo */
-              }
-            })
-        )
+        const alvos = [...this.sessoes.values()].filter((s) => s.info.status === 'ok' && s.browser?.connected)
+        // Captura de tela consome GPU: limitar a concorrência.
+        for (let i = 0; i < alvos.length; i += 4) {
+          await Promise.all(alvos.slice(i, i + 4).map(async (s) => {
+            try {
+              const p = await paginaPrincipal(s.browser!)
+              const img = await p.screenshot({ type: 'jpeg', quality: 35, encoding: 'base64', optimizeForSpeed: true })
+              s.info.miniatura = String(img)
+            } catch {
+              /* navegador ocupado; tentar no próximo ciclo */
+            }
+          }))
+          if (this.pausado) break
+        }
         this.avisarMudanca()
       }
       this.agendarMiniaturas()

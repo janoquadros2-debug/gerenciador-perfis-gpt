@@ -74,6 +74,17 @@ export function Configuracoes({ abaInicial }: { abaInicial?: string }) {
               </label>
             </div>
             <Opcao titulo="Reorganizar janelas após cada grupo de cinco aberturas" desc="Reposiciona as janelas ao concluir um grupo. Em grades lotadas, janelas extras podem continuar parcialmente sobrepostas." ligada={cfg.reorganizarAposLote !== false} aoMudar={(v) => salvar({ reorganizarAposLote: v })} />
+            <Opcao titulo="Diagnóstico de reprodução de vídeos" desc="Verifica passivamente se o tempo do player avança. Mostra estado inconclusivo quando não há evidência suficiente. Não inicia reprodução." ligada={cfg.diagnosticoReproducao !== false} aoMudar={(v) => salvar({ diagnosticoReproducao: v })} />
+            <div className="opcao">
+              <label className="campo">
+                Preferência de cookies para perfis existentes
+                <select className="solto" value={cfg.cookiesPadrao ?? 'recusar'} onChange={(e) => salvar({ cookiesPadrao: e.target.value as 'aceitar' | 'recusar' | 'desligado' })}>
+                  <option value="recusar">Recusar quando disponível</option>
+                  <option value="aceitar">Aceitar quando disponível</option>
+                  <option value="desligado">Não interferir</option>
+                </select>
+              </label>
+            </div>
             <Opcao titulo="Organizar janelas ao abrir" desc="Usa a grade definida na aba Janelas." ligada={cfg.janelas.ativo} aoMudar={(v) => salvar({ janelas: { ...cfg.janelas, ativo: v } })} />
             <Opcao titulo="Reabrir se fechar ou cair" desc={`Tenta até ${cfg.tentativasReabrir} vezes. Navegadores que você encerrar não são reabertos.`} ligada={cfg.reabrirSeCair} aoMudar={(v) => salvar({ reabrirSeCair: v })} />
             {cfg.reabrirSeCair && (
