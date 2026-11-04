@@ -224,6 +224,8 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     filaAdicionar = filaAdicionar.then(() => adicionarNovos(n)).catch((e) => motor.avisar(String(e?.message ?? e)))
   },
   f5: (slot: number) => motor.f5(slot),
+  verificarVideoAgora: (slot: number) => motor.verificarAgora(slot),
+  retomarDiagnostico: (slot: number) => motor.retomarDiagnostico(slot),
   ajustarCronometros: (slots: number[], tipo: 'f5' | 'fechamento', tempo: import('../shared/types').TempoAberto, aoAcabar?: 'fechar' | 'reabrir') =>
     motor.ajustarCronometros(slots, tipo, tempo, aoAcabar),
   recarregarComErro: () => motor.recarregarComErro(),
