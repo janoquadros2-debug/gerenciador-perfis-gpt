@@ -61,6 +61,7 @@ export function Janelas() {
           <h1>Organizador de janelas</h1>
           <p className="sub">Posiciona os navegadores na tela automaticamente ao abrir.</p>
         </div>
+        {emUso.length > 0 && <span className="dica">Capacidade sem reutilizar posições: {porMonitor * emUso.length} janelas. Acima disso, os grupos excedentes serão deslocados, mas não caberão simultaneamente sem sobreposição. Use uma grade maior ou mais monitores.</span>}
         <div className="linha">
           <strong>{j.ativo ? 'Ativado' : 'Desativado'}</strong>
           <Chave ligada={j.ativo} aoMudar={(v) => muda({ ativo: v })} rotulo="Organizador de janelas" />

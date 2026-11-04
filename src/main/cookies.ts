@@ -130,25 +130,32 @@ async function tentarEmTodos(pagina: Page, modo: 'aceitar' | 'recusar'): Promise
   return false
 }
 
-// tenta algumas vezes depois de cada página carregar (os avisos costumam aparecer com atraso)
+// Mantém apenas uma verificação por aba para evitar centenas de timers em 50 perfis.
 function vigiarPagina(pagina: Page, modo: () => ModoCookies, aoClicar: () => void) {
   if ((pagina as any).__cookies) return
   ;(pagina as any).__cookies = true
-  const rodada = () => {
-    let feito = false
-    for (const ms of [1200, 3000, 6000, 10000]) {
-      setTimeout(async () => {
-        const m = modo()
-        if (feito || m === 'desligado' || pagina.isClosed()) return
-        if (await tentarEmTodos(pagina, m)) {
-          feito = true
-          aoClicar()
-        }
-      }, ms)
-    }
+  let ocupado = false
+  let tratado = false
+  let tentativas = 0
+  const checar = async () => {
+    if (pagina.isClosed()) { clearInterval(timer); return }
+    if (ocupado || tratado || modo() === 'desligado') return
+    ocupado = true
+    try {
+      if (await tentarEmTodos(pagina, modo() as 'aceitar' | 'recusar')) {
+        tratado = true
+        aoClicar()
+      }
+    } finally { ocupado = false }
   }
-  pagina.on('load', rodada)
-  rodada()
+  const aoCarregar = () => { tratado = false; tentativas = 0; void checar() }
+  const timer = setInterval(() => {
+    if (pagina.isClosed()) { clearInterval(timer); return }
+    if (!tratado && tentativas++ < 20) void checar()
+  }, 3000)
+  pagina.on('load', aoCarregar)
+  pagina.once('close', () => clearInterval(timer))
+  setTimeout(() => { if (!pagina.isClosed()) void checar() }, 1200)
 }
 
 // liga em todas as abas do navegador (as que já existem e as que abrirem depois)

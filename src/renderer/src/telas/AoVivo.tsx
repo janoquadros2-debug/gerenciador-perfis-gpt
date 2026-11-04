@@ -54,10 +54,21 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
         </div>
       </div>
 
+      <div className="painel">
+        <strong>Central de saúde dos navegadores</strong>
+        <span className="dica">Acompanhe carregamento, erros de conexão e fila. A condição de um vídeo não pode ser confirmada apenas pelo estado do navegador.</span>
+        <div className="linha" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <span className="selo ok">{ok} navegadores carregados</span>
+          <span className="selo neutro">{navs.filter((n) => n.status === 'abrindo').length} iniciando</span>
+          <span className="selo erro">{comErro} precisam de atenção</span>
+          <span className="selo neutro">{estado?.fila ?? 0} aguardando na fila</span>
+        </div>
+        {comErro > 0 && <span className="dica">Com problema: {navs.filter((n) => n.status === 'erro').slice(0, 12).map((n) => '#' + n.slot + ' ' + (n.erro ?? 'falha')).join(' · ')}</span>}
+      </div>
       <PainelHardware />
       <div className="painel">
         <div className="linha" style={{ gap: 14 }}>
-          <span className="selo ok">{ok} funcionando</span>
+          <span className="selo ok">{ok} navegadores conectados</span>
           <span className="selo erro">{comErro} com erro</span>
           <span className="espaco" />
           <button className="btn pequeno perigo" disabled={!comErro} onClick={() => chamar('recarregarComErro')}>Recarregar todos com erro ({comErro})</button>

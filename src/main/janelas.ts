@@ -31,10 +31,18 @@ export function retanguloDoSlot(slot: number, cfg: ConfigJanelas) {
   const i = slot - 1
   const mon = monitores[Math.floor(i / porMonitor) % monitores.length]
   const { linha, coluna } = posicaoNaGrade(i % porMonitor, cfg)
+  // Perfis que excedem a grade antes recebiam coordenadas idênticas.
+  // Desloca grupos excedentes sem sair da área útil do monitor.
+  const grupo = Math.floor(i / (porMonitor * monitores.length))
+  const deslocamento = Math.min(140, grupo * 28)
+  const width = Math.min(Math.max(300, cfg.largura), mon.largura)
+  const height = Math.min(Math.max(240, cfg.altura), mon.altura)
+  const esquerda = mon.x + coluna * (cfg.largura + cfg.espaco) + deslocamento
+  const topo = mon.y + linha * (cfg.altura + cfg.espaco) + deslocamento
   return {
-    left: Math.round(mon.x + coluna * (cfg.largura + cfg.espaco)),
-    top: Math.round(mon.y + linha * (cfg.altura + cfg.espaco)),
-    width: cfg.largura,
-    height: cfg.altura
+    left: Math.round(Math.max(mon.x, Math.min(esquerda, mon.x + mon.largura - width))),
+    top: Math.round(Math.max(mon.y, Math.min(topo, mon.y + mon.altura - height))),
+    width,
+    height
   }
 }

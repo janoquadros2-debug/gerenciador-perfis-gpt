@@ -55,6 +55,25 @@ export function Configuracoes({ abaInicial }: { abaInicial?: string }) {
               ligada={cfg.manterAtivas !== false}
               aoMudar={(v) => salvar({ manterAtivas: v })}
             />
+            <div className="opcao" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <label className="campo">
+                Navegadores abrindo ao mesmo tempo
+                <select className="solto" value={cfg.aberturasSimultaneas ?? 2} onChange={(e) => salvar({ aberturasSimultaneas: Number(e.target.value) })}>
+                  {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <label className="campo">
+                Intervalo entre aberturas
+                <select className="solto" value={cfg.intervaloEntreAberturasMs ?? 1500} onChange={(e) => salvar({ intervaloEntreAberturasMs: Number(e.target.value) })}>
+                  <option value={0}>Sem intervalo</option>
+                  <option value={1000}>1 segundo</option>
+                  <option value={1500}>1,5 segundo</option>
+                  <option value={3000}>3 segundos</option>
+                  <option value={5000}>5 segundos</option>
+                </select>
+              </label>
+            </div>
+            <Opcao titulo="Reorganizar janelas após cada grupo de cinco aberturas" desc="Reposiciona as janelas ao concluir um grupo. Em grades lotadas, janelas extras podem continuar parcialmente sobrepostas." ligada={cfg.reorganizarAposLote !== false} aoMudar={(v) => salvar({ reorganizarAposLote: v })} />
             <Opcao titulo="Organizar janelas ao abrir" desc="Usa a grade definida na aba Janelas." ligada={cfg.janelas.ativo} aoMudar={(v) => salvar({ janelas: { ...cfg.janelas, ativo: v } })} />
             <Opcao titulo="Reabrir se fechar ou cair" desc={`Tenta até ${cfg.tentativasReabrir} vezes. Navegadores que você encerrar não são reabertos.`} ligada={cfg.reabrirSeCair} aoMudar={(v) => salvar({ reabrirSeCair: v })} />
             {cfg.reabrirSeCair && (

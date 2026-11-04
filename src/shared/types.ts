@@ -90,6 +90,9 @@ export interface Configuracoes {
   iniciarComWindows: boolean
   fecharTodosAoSair: boolean
   manterAtivas?: boolean // janelas cobertas continuam rodando como se estivessem na frente
+  aberturasSimultaneas?: number // limite de 1 a 4 navegadores em abertura
+  intervaloEntreAberturasMs?: number // intervalo entre inícios de abertura (0 a 15000 ms)
+  reorganizarAposLote?: boolean // reposiciona janelas ao concluir um grupo
   apagarAoSair: boolean // apaga perfis do Dolphin ao fechar o programa
   etiquetaApagarAoSair: string // só apaga os perfis com esta etiqueta ('' = todos)
   janelas: ConfigJanelas

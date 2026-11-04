@@ -44,6 +44,13 @@ export async function manterAtivas(browser: Browser) {
   for (const p of await browser.pages()) ativarPagina(p)
   browser.on('targetcreated', async (t) => {
     const p = await t.page().catch(() => null)
-    if (p) ativarPagina(p)
+    if (p) await ativarPagina(p)
   })
+  // Verifica novas abas e navegações sem forçar foco visível no Windows.
+  const timer = setInterval(async () => {
+    if (!browser.connected) { clearInterval(timer); return }
+    const paginas = await browser.pages().catch(() => [] as Page[])
+    for (const p of paginas) if (!p.isClosed()) await ativarPagina(p)
+  }, 60000)
+  browser.once('disconnected', () => clearInterval(timer))
 }

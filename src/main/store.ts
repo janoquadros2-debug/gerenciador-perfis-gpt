@@ -48,6 +48,9 @@ export const CONFIG_PADRAO: Configuracoes = {
   iniciarComWindows: false,
   fecharTodosAoSair: true,
   manterAtivas: true,
+  aberturasSimultaneas: 2,
+  intervaloEntreAberturasMs: 1500,
+  reorganizarAposLote: true,
   apagarAoSair: false,
   etiquetaApagarAoSair: 'Testes',
   janelas: {
@@ -79,7 +82,13 @@ let dados: Dados = {
 
 export function carregar(): void {
   try {
-    const lido = JSON.parse(fs.readFileSync(arquivo(), 'utf8'))
+    let lido: Dados
+    try {
+      lido = JSON.parse(fs.readFileSync(arquivo(), 'utf8'))
+    } catch {
+      // Recupera um backup somente quando o arquivo principal não é válido.
+      lido = JSON.parse(fs.readFileSync(arquivo() + '.bak', 'utf8'))
+    }
     dados = {
       ...dados,
       ...lido,
@@ -94,8 +103,21 @@ export function carregar(): void {
 let timer: NodeJS.Timeout | undefined
 export function salvarAgora(): void {
   clearTimeout(timer)
-  fs.mkdirSync(path.dirname(arquivo()), { recursive: true })
-  fs.writeFileSync(arquivo(), JSON.stringify(dados, null, 2))
+  const destino = arquivo()
+  const temporario = destino + '.tmp'
+  fs.mkdirSync(path.dirname(destino), { recursive: true })
+  const conteudo = JSON.stringify(dados, null, 2)
+  // Nunca truncar o JSON principal durante uma queda de energia ou encerramento abrupto.
+  fs.writeFileSync(temporario, conteudo, 'utf8')
+  // Mantém uma cópia recuperável da versão anterior.
+  if (fs.existsSync(destino)) fs.copyFileSync(destino, destino + '.bak')
+  try {
+    fs.renameSync(temporario, destino)
+  } catch {
+    // No Windows, alguns antivírus bloqueiam momentaneamente o rename de substituição.
+    // Preservar o original e falhar é mais seguro do que escrever por cima.
+    throw new Error('Não foi possível salvar as configurações com segurança. O arquivo original foi preservado.')
+  }
 }
 export function salvar(): void {
   clearTimeout(timer)

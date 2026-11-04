@@ -38,7 +38,7 @@ interface ItemFila {
   aoAcabar?: 'fechar' | 'reabrir'
 }
 
-const ABRIR_AO_MESMO_TEMPO = 3
+const LIMITE_ABERTURA = 4
 const INTERVALO_MINIATURA = { rapida: 1000, normal: 2500, economica: 6000, desligadas: 0 }
 
 export class Motor extends EventEmitter {
@@ -46,6 +46,9 @@ export class Motor extends EventEmitter {
   private sessoes = new Map<number, Sessao>()
   private fila: ItemFila[] = []
   private abrindoAgora = 0
+  private proximaAbertura = 0
+  private timerFila?: NodeJS.Timeout
+  private concluidosNoLote = 0
   private pausado = false
   private avisos: string[] = []
   private proxiesEsgotados = false
@@ -173,7 +176,18 @@ export class Motor extends EventEmitter {
   }
 
   private async processarFila() {
-    while (!this.pausado && this.fila.length > 0 && this.abrindoAgora < ABRIR_AO_MESMO_TEMPO) {
+    const cfgInicial = store.config
+    const limite = Math.max(1, Math.min(LIMITE_ABERTURA, Math.round(cfgInicial.aberturasSimultaneas ?? 2)))
+    const intervalo = Math.max(0, Math.min(15000, cfgInicial.intervaloEntreAberturasMs ?? 1500))
+    while (!this.pausado && this.fila.length > 0 && this.abrindoAgora < limite) {
+      const espera = this.proximaAbertura - Date.now()
+      if (espera > 0) {
+        if (!this.timerFila) this.timerFila = setTimeout(() => {
+          this.timerFila = undefined
+          this.processarFila()
+        }, espera)
+        return
+      }
       const cfg = store.config
       if (cfg.limitadorRam && this.ram().porcentagem >= cfg.limiteRam) {
         // tenta limpar a RAM sozinho (no máximo 1 vez por minuto) antes de esperar
@@ -187,8 +201,14 @@ export class Motor extends EventEmitter {
       }
       const item = this.fila.shift()!
       this.abrindoAgora++
+      this.proximaAbertura = Date.now() + intervalo
       this.abrirUm(item).finally(() => {
         this.abrindoAgora--
+        this.concluidosNoLote++
+        if (store.config.reorganizarAposLote && this.concluidosNoLote % 5 === 0 && store.config.janelas.ativo) {
+          // A reorganização é agendada e nunca impede a abertura dos próximos perfis.
+          this.organizarTodos().catch(() => undefined)
+        }
         this.processarFila()
       })
     }
