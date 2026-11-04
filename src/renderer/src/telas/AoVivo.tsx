@@ -1,5 +1,5 @@
 import { type MouseEvent, type WheelEvent, useEffect, useRef, useState } from 'react'
-import type { EstadoMotor, Navegador, Proxy } from '../../../shared/types'
+import type { EstadoMotor, Navegador, Proxy, TempoAberto } from '../../../shared/types'
 import { chamar, useConfig } from '../api'
 import { confirmar } from '../confirmar'
 import { Icone, Modal } from '../componentes'
@@ -24,6 +24,7 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
   const [numeros, setNumeros] = useState('')
   const [ampliado, setAmpliado] = useState<Navegador | null>(null)
   const [trocando, setTrocando] = useState<number[] | null>(null)
+  const [cronometros, setCronometros] = useState<{ slots: number[]; nome: string } | null>(null)
 
   const navs = estado?.navegadores ?? []
   // relógio de 1 em 1 segundo para a contagem regressiva
@@ -53,6 +54,7 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
             <button className="btn" onClick={() => chamar('pausar')}>Pausar</button>
           )}
           <button className="btn" onClick={() => chamar('organizarTodos')}>Organizar janelas</button>
+          <button className="btn primario" disabled={!navs.length} onClick={() => setCronometros({ slots: navs.map((n) => n.slot), nome: 'todos os perfis abertos' })}>F5 / Fechamento em todos</button>
           <button className="btn perigo" disabled={!navs.length} onClick={async () => (await confirmar('Fechar todos os navegadores?', { perigo: true })) && chamar('encerrarTodos')}>Fechar todos</button>
         </div>
       </div>
@@ -96,6 +98,7 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
               <input className="solto" value={numeros} onChange={(e) => setNumeros(e.target.value)} style={{ width: 180 }} placeholder="12" />
               <button className="btn perigo" disabled={!alvo.length} onClick={() => { chamar('encerrar', alvo); setNumeros('') }}>Encerrar</button>
               <button className="btn" disabled={!alvo.length} onClick={() => setTrocando(alvo)}>Substituir</button>
+              <button className="btn" disabled={!alvo.length} onClick={() => setCronometros({ slots: alvo, nome: alvo.map((n) => '#' + n).join(', ') })}>Programar tempo</button>
             </span>
           </label>
           <span className="espaco" />
@@ -126,13 +129,14 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
       ) : (
         <div className="grade-vivo">
           {navs.map((n) => (
-            <CartaoVivo key={n.slot} n={n} agora={agora} aoAmpliar={() => setAmpliado(n)} aoSubstituir={() => setTrocando([n.slot])} />
+            <CartaoVivo key={n.slot} n={n} agora={agora} aoAmpliar={() => setAmpliado(n)} aoSubstituir={() => setTrocando([n.slot])} aoProgramar={() => setCronometros({ slots: [n.slot], nome: n.perfilNome + ' (#' + n.slot + ')' })} />
           ))}
         </div>
       )}
 
       {ampliado && <Ampliado n={ampliado} aoFechar={() => setAmpliado(null)} />}
       {trocando && <Substituir slots={trocando} aoFechar={() => { setTrocando(null); setNumeros('') }} />}
+      {cronometros && <ProgramarCronometros slots={cronometros.slots} nome={cronometros.nome} aoFechar={() => setCronometros(null)} />}
     </>
   )
 }
@@ -145,7 +149,7 @@ function restante(ms: number) {
   return h ? `${h}h${String(m).padStart(2, '0')}:${seg}` : `${m}:${seg}`
 }
 
-function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir }: { n: Navegador; agora: number; aoAmpliar: () => void; aoSubstituir: () => void }) {
+function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Navegador; agora: number; aoAmpliar: () => void; aoSubstituir: () => void; aoProgramar: () => void }) {
   const textoStatus = n.status === 'ok' ? 'OK' : n.status === 'erro' ? 'ERRO' : 'ABRINDO'
   return (
     <article className={`vivo ${n.status}`}>
@@ -200,11 +204,78 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir }: { n: Navegador; agora
       {n.erro && <div className="erro-msg">{n.erro}</div>}
       <div className="linha" style={{ gap: 6 }}>
         <button className="btn pequeno" style={{ flex: 1 }} onClick={() => chamar('f5', n.slot)}>F5</button>
+        <button className="btn pequeno" title="Programar ou desativar F5 e fechamento automáticos neste perfil" onClick={aoProgramar}>Tempos</button>
         <button className="btn pequeno icone" title="Substituir" aria-label="Substituir" onClick={aoSubstituir}>{Icone.trocar}</button>
         <button className="btn pequeno icone" title="Trazer para frente" aria-label="Trazer para frente" onClick={() => chamar('trazerParaFrente', n.slot)}>{Icone.frente}</button>
         <button className="btn pequeno icone" title="Encerrar" aria-label="Encerrar" onClick={() => chamar('encerrar', [n.slot])}>{Icone.fechar}</button>
       </div>
     </article>
+  )
+}
+
+function ProgramarCronometros({ slots, nome, aoFechar }: { slots: number[]; nome: string; aoFechar: () => void }) {
+  const [tipo, setTipo] = useState<'f5' | 'fechamento'>('f5')
+  const [modo, setModo] = useState<TempoAberto['modo']>('fixo')
+  const [minutos, setMinutos] = useState(5)
+  const [de, setDe] = useState(3)
+  const [ate, setAte] = useState(8)
+  const [aoAcabar, setAoAcabar] = useState<'fechar' | 'reabrir'>('fechar')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+  const aplicar = async () => {
+    if (modo !== 'sem-limite' && (!Number.isFinite(minutos) || !Number.isFinite(de) || !Number.isFinite(ate) ||
+        (modo === 'fixo' && minutos <= 0) || (modo === 'aleatorio' && (de <= 0 || ate < de)))) {
+      setErro('Confira os minutos e o intervalo informado.')
+      return
+    }
+    setSalvando(true)
+    setErro('')
+    try {
+      const resultado = await chamar<{ alterados: number; ignorados: number }>('ajustarCronometros', slots, tipo, { modo, minutos, de, ate }, aoAcabar)
+      if (!resultado.alterados) { setErro('Nenhum perfil selecionado está disponível.'); return }
+      aoFechar()
+    } catch (e) {
+      setErro(String(e instanceof Error ? e.message : e))
+    } finally { setSalvando(false) }
+  }
+  return (
+    <Modal titulo="Programar F5 e fechamento" sub={`Aplicar em ${nome} · contagem a partir de agora`} aoFechar={aoFechar}>
+      <div className="campo">
+        Função
+        <div className="linha">
+          <label className="escolha"><input type="radio" checked={tipo === 'f5'} onChange={() => setTipo('f5')} /> F5 automático</label>
+          <label className="escolha"><input type="radio" checked={tipo === 'fechamento'} onChange={() => setTipo('fechamento')} /> Fechar por tempo</label>
+        </div>
+      </div>
+      <label className="campo">Modo
+        <select className="solto" value={modo} onChange={(e) => setModo(e.target.value as TempoAberto['modo'])}>
+          <option value="sem-limite">Desativar {tipo === 'f5' ? 'F5 automático' : 'fechamento automático'}</option>
+          <option value="fixo">Tempo fixo</option>
+          <option value="aleatorio">Tempo aleatório por perfil</option>
+        </select>
+      </label>
+      {modo === 'fixo' && <label className="campo">Minutos
+        <input className="solto" type="number" min={1} max={10080} value={minutos} onChange={(e) => setMinutos(Number(e.target.value))} />
+      </label>}
+      {modo === 'aleatorio' && <div className="linha" style={{ gap: 12 }}>
+        <label className="campo">De (minutos)<input className="solto" type="number" min={1} max={10080} value={de} onChange={(e) => setDe(Number(e.target.value))} /></label>
+        <label className="campo">Até (minutos)<input className="solto" type="number" min={1} max={10080} value={ate} onChange={(e) => setAte(Number(e.target.value))} /></label>
+      </div>}
+      {tipo === 'fechamento' && modo !== 'sem-limite' && (
+        <label className="campo">Quando o tempo terminar
+          <select className="solto" value={aoAcabar} onChange={(e) => setAoAcabar(e.target.value as 'fechar' | 'reabrir')}>
+            <option value="fechar">Fechar o navegador</option>
+            <option value="reabrir">Fechar e reabrir com novo tempo</option>
+          </select>
+        </label>
+      )}
+      <span className="dica">Alterar uma função não modifica a outra. Cada perfil sorteia seu próprio prazo quando selecionado o modo aleatório. Desativar cancela os próximos eventos.</span>
+      {erro && <div className="aviso">{erro}</div>}
+      <div className="linha" style={{ justifyContent: 'flex-end' }}>
+        <button className="btn" onClick={aoFechar}>Cancelar</button>
+        <button className="btn primario" disabled={salvando} onClick={aplicar}>{salvando ? 'Aplicando…' : 'Aplicar agora'}</button>
+      </div>
+    </Modal>
   )
 }
 

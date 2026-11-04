@@ -367,7 +367,8 @@ export class Motor extends EventEmitter {
     if (cfg.reabrirSeCair && !this.pausado && sessao.info.quedas <= cfg.tentativasReabrir) {
       sessao.info.status = 'abrindo'
       sessao.info.erro = `Caiu, reabrindo (${sessao.info.quedas}/${cfg.tentativasReabrir})`
-      this.fila.unshift({ perfil: sessao.perfil, slot, proxy: undefined, fechaEm: sessao.info.fechaEm })
+      this.fila.unshift({ perfil: sessao.perfil, slot, proxy: undefined, fechaEm: sessao.info.fechaEm,
+        recarregar: sessao.recarregar, tempoAberto: sessao.tempoAberto, aoAcabar: sessao.aoAcabar, cookies: sessao.cookies })
       this.processarFila()
     } else {
       sessao.info.status = 'erro'
@@ -382,7 +383,8 @@ export class Motor extends EventEmitter {
     const s = this.sessoes.get(slot)
     if (!s) return
     if (!s.browser?.connected) {
-      this.fila.unshift({ perfil: s.perfil, slot, fechaEm: s.info.fechaEm })
+      this.fila.unshift({ perfil: s.perfil, slot, fechaEm: s.info.fechaEm,
+        recarregar: s.recarregar, tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar, cookies: s.cookies })
       this.processarFila()
       return
     }
@@ -400,6 +402,46 @@ export class Motor extends EventEmitter {
       this.falhaNoSite(s, traduzirErro(e))
     }
     this.avisarMudanca()
+  }
+
+  /**
+   * Ajusta os cronômetros de perfis JÁ abertos, independentemente da criação em massa.
+   * O desligamento elimina o próximo evento agendado. Não altera perfis encerrados.
+   */
+  ajustarCronometros(
+    slots: number[],
+    tipo: 'f5' | 'fechamento',
+    tempo: TempoAberto,
+    aoAcabar: 'fechar' | 'reabrir' = 'fechar'
+  ): { alterados: number; ignorados: number } {
+    if (!Array.isArray(slots) || !['f5', 'fechamento'].includes(tipo)) throw new Error('Seleção inválida')
+    if (!tempo || !['sem-limite', 'fixo', 'aleatorio'].includes(tempo.modo)) throw new Error('Modo de tempo inválido')
+    const valores = [tempo.minutos, tempo.de, tempo.ate]
+    if (valores.some((v) => !Number.isFinite(v) || v < 0 || v > 10080)) throw new Error('Informe tempos válidos de até 7 dias')
+    if (tempo.modo === 'fixo' && tempo.minutos <= 0) throw new Error('Tempo fixo deve ser maior que zero')
+    if (tempo.modo === 'aleatorio' && (tempo.de <= 0 || tempo.ate <= 0 || tempo.de > tempo.ate)) throw new Error('Intervalo aleatório inválido')
+    const agora = Date.now()
+    let alterados = 0
+    for (const slot of new Set(slots)) {
+      const s = this.sessoes.get(slot)
+      if (!s || s.fechando || s.info.status === 'fechado') continue
+      const ativo = tempo.modo !== 'sem-limite'
+      if (tipo === 'f5') {
+        s.recarregar = ativo ? { ...tempo } : undefined
+        s.info.proximoF5 = ativo ? agora + (sortearDuracao(tempo) ?? 0) : undefined
+      } else {
+        s.tempoAberto = ativo ? { ...tempo } : undefined
+        s.aoAcabar = ativo ? aoAcabar : undefined
+        s.info.fechaEm = ativo ? agora + (sortearDuracao(tempo) ?? 0) : undefined
+        s.info.reabreAoAcabar = ativo && aoAcabar === 'reabrir'
+      }
+      alterados++
+    }
+    if (alterados) {
+      logInfo('Ao vivo', `${tipo === 'f5' ? 'F5' : 'Fechamento'}: temporizador ${tempo.modo === 'sem-limite' ? 'desligado' : 'ajustado'} em ${alterados} perfis.`)
+      this.avisarMudanca()
+    }
+    return { alterados, ignorados: slots.length - alterados }
   }
 
   async recarregarComErro() {
