@@ -25,6 +25,10 @@ function monitoresEmUso(cfg: ConfigJanelas): Monitor[] {
   return escolhidos.length ? escolhidos : todos
 }
 
+export function capacidadeGrade(cfg: ConfigJanelas): number {
+  return Math.max(1, cfg.colunas * cfg.linhas * monitoresEmUso(cfg).length)
+}
+
 export function retanguloDoSlot(slot: number, cfg: ConfigJanelas) {
   const monitores = monitoresEmUso(cfg)
   const porMonitor = Math.max(1, cfg.colunas * cfg.linhas)
