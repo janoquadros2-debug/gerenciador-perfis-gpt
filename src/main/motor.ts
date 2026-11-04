@@ -6,6 +6,7 @@ import { sortearDuracao } from '../shared/sorteio'
 import { type ModoCookies, vigiarCookies } from './cookies'
 import { manterAtivas } from './ativas'
 import { lerAmostraMidia, type AmostraMidia } from './diagnostico'
+import { urlPlayerDeTeste } from './player-teste'
 import * as dolphin from './dolphin'
 import { retanguloDoSlot, capacidadeGrade } from './janelas'
 import { ProxiesEsgotados, proximoProxy, proxyParaTexto, testarProxy, lerLinha } from './proxies'
@@ -944,6 +945,45 @@ export class Motor extends EventEmitter {
       }
       this.agendarMiniaturas()
     }, intervalo)
+  }
+
+  async testarPlayLocal(slot: number): Promise<{ ok: boolean; detalhe: string }> {
+    // Teste isolado: não aceita disparo em lote, não abre lives externas,
+    // não reutiliza o player do site e só permite um perfil ativo.
+    if (this.sessoes.size !== 1 || this.fila.length > 0 || this.abrindoAgora !== 0) {
+      throw new Error('O teste de Play local exige apenas um navegador aberto e nenhuma abertura pendente.')
+    }
+    const s = this.sessoes.get(slot)
+    if (!s?.browser?.connected || s.info.status !== 'ok') {
+      throw new Error('Abra um único perfil e aguarde a conexão antes de testar.')
+    }
+    const pagina = await s.browser.newPage()
+    try {
+      await pagina.goto(urlPlayerDeTeste(), { waitUntil: 'domcontentloaded', timeout: 15000 })
+      await pagina.waitForSelector('#botao-play', { timeout: 10000 })
+      // Um único clique automatizado, no botão de uma página de demonstração local.
+      await pagina.click('#botao-play')
+      await new Promise((resolve) => setTimeout(resolve, 1300))
+      const estado = await pagina.evaluate(() => {
+        const video = document.getElementById('video') as HTMLVideoElement | null
+        return {
+          ok: !!video && !video.paused && video.readyState >= 2,
+          texto: document.getElementById('estado')?.textContent || ''
+        }
+      })
+      const detalhe = estado.ok
+        ? 'Teste local: o clique foi executado e o vídeo de demonstração iniciou.'
+        : 'Teste local: o clique foi feito, mas não houve reprodução confirmada. ' + estado.texto
+      this.registrar(s, 'video', detalhe)
+      this.avisarMudanca()
+      return { ok: estado.ok, detalhe }
+    } catch (e) {
+      const detalhe = 'Falha no teste local de Play: ' + traduzirErro(e)
+      this.registrar(s, 'erro', detalhe)
+      this.avisarMudanca()
+      await pagina.close().catch(() => undefined)
+      return { ok: false, detalhe }
+    }
   }
 
   async verificarAgora(slot: number) {
