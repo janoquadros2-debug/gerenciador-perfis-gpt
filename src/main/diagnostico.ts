@@ -10,6 +10,7 @@ export interface AmostraMidia {
   esperando: boolean
   erro: boolean
   avisoCookies: boolean
+  anuncioProvavel: boolean
 }
 
 export async function lerAmostraMidia(pagina: Page): Promise<AmostraMidia | null> {
@@ -29,6 +30,14 @@ export async function lerAmostraMidia(pagina: Page): Promise<AmostraMidia | null
             return mostrar(el) && (sel !== '[aria-modal="true"]' || /cookie|consent|privacidade|privacy|aceitar|accept/i.test(el?.textContent?.slice(0, 700) ?? ''))
           })
           const video = [...document.querySelectorAll('video')].find((el) => mostrar(el)) as HTMLVideoElement | undefined
+          // Indicadores visuais explícitos do player. Não inspeciona publicidade da página
+          // nem promete identificar todos os anúncios transmitidos.
+          const container = video?.closest('[class*="player"], [id*="player"], .video-container') ?? video?.parentElement?.parentElement
+          const anuncioProvavel = !!container && [...container.querySelectorAll(
+            '[class*="ad-indicator"], [class*="ad-label"], [class*="ad-countdown"], [class*="ad-overlay"], [data-testid*="ad-label"], [aria-label*="Advertisement"], [aria-label*="Anúncio"]'
+          )].slice(0, 25).some((el) => mostrar(el) && /ad|advertisement|anúncio|publicidade|sponsored/i.test(
+            `${el.className} ${el.getAttribute('aria-label') ?? ''} ${el.textContent?.slice(0, 80) ?? ''}`
+          ))
           return {
             encontrado: !!video,
             tempo: video?.currentTime ?? 0,
@@ -37,7 +46,8 @@ export async function lerAmostraMidia(pagina: Page): Promise<AmostraMidia | null
             pronto: video?.readyState ?? 0,
             esperando: !!video && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA,
             erro: !!video?.error,
-            avisoCookies
+            avisoCookies,
+            anuncioProvavel
           }
         }),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500))
