@@ -24,6 +24,7 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
   const [numeros, setNumeros] = useState('')
   const [ampliado, setAmpliado] = useState<Navegador | null>(null)
   const [trocando, setTrocando] = useState<number[] | null>(null)
+  const [grupoMudando, setGrupoMudando] = useState(false)
   const [cronometros, setCronometros] = useState<{ slots: number[]; nome: string } | null>(null)
 
   const navs = estado?.navegadores ?? []
@@ -74,6 +75,25 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
         </div>
         {comErro > 0 && <span className="dica">Com problema: {navs.filter((n) => n.status === 'erro').slice(0, 12).map((n) => '#' + n.slot + ' ' + (n.erro ?? 'falha')).join(' · ')}</span>}
       </div>
+      {(estado?.totalGrupos ?? 1) > 1 && (
+        <div className="painel">
+          <strong>Grupos de janelas</strong>
+          <span className="dica">A tela não comporta todas as janelas simultaneamente. Escolha o grupo que ficará em evidência; os demais navegadores permanecem abertos atrás dele. Isso não garante prioridade de CPU ou GPU.</span>
+          <div className="linha" style={{ gap: 8, flexWrap: 'wrap' }}>
+            {Array.from({ length: Math.min(40, estado?.totalGrupos ?? 1) }, (_, grupo) => (
+              <button key={grupo} className={`pilula ${(estado?.grupoVisivel ?? 0) === grupo ? 'ativa' : ''}`} disabled={grupoMudando}
+                onClick={async () => {
+                  setGrupoMudando(true)
+                  try { await chamar('escolherGrupoJanelas', grupo) }
+                  finally { setGrupoMudando(false) }
+                }}>
+                Grupo {grupo + 1}
+              </button>
+            ))}
+          </div>
+          <span className="dica">{estado?.capacidadePorGrupo ?? 0} posições por grupo · {estado?.totalGrupos ?? 1} grupos no total</span>
+        </div>
+      )}
       <PainelHardware />
       <div className="painel">
         <div className="linha" style={{ gap: 14 }}>
@@ -150,6 +170,16 @@ function restante(ms: number) {
 }
 
 function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Navegador; agora: number; aoAmpliar: () => void; aoSubstituir: () => void; aoProgramar: () => void }) {
+  const [testandoProxy, setTestandoProxy] = useState(false)
+  const [erroTeste, setErroTeste] = useState('')
+  const [verHistorico, setVerHistorico] = useState(false)
+  const diagnosticarProxy = async () => {
+    setTestandoProxy(true)
+    setErroTeste('')
+    try { await chamar('diagnosticarProxyPerfil', n.slot) }
+    catch (e) { setErroTeste(String(e instanceof Error ? e.message : e)) }
+    finally { setTestandoProxy(false) }
+  }
   const textoStatus = n.status === 'ok' ? 'OK' : n.status === 'erro' ? 'ERRO' : 'ABRINDO'
   return (
     <article className={`vivo ${n.status}`}>
@@ -201,10 +231,27 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
           </>
         )}
       </div>
+      {n.diagnosticoProxy && <span className={`selo ${n.diagnosticoProxy.ok ? 'ok' : 'erro'}`}>
+        Proxy: {n.diagnosticoProxy.ok ? `OK · ${n.diagnosticoProxy.ms ?? '?'} ms` : n.diagnosticoProxy.erro ?? 'falha'}
+      </span>}
+      {erroTeste && <span className="dica">{erroTeste}</span>}
       {n.erro && <div className="erro-msg">{n.erro}</div>}
+      {!!n.historico?.length && (
+        <div>
+          <button className="btn pequeno" onClick={() => setVerHistorico(!verHistorico)}>
+            {verHistorico ? 'Ocultar histórico' : `Histórico (${n.historico.length})`}
+          </button>
+          {verHistorico && <div className="dica" style={{ maxHeight: 150, overflowY: 'auto', marginTop: 6 }}>
+            {[...n.historico].reverse().slice(0, 20).map((h, i) => (
+              <div key={h.quando + '-' + i}>{new Date(h.quando).toLocaleTimeString('pt-BR')} · {h.categoria}: {h.texto}</div>
+            ))}
+          </div>}
+        </div>
+      )}
       <div className="linha" style={{ gap: 6 }}>
         <button className="btn pequeno" style={{ flex: 1 }} onClick={() => chamar('f5', n.slot)}>F5</button>
         <button className="btn pequeno" title="Programar ou desativar F5 e fechamento automáticos neste perfil" onClick={aoProgramar}>Tempos</button>
+        <button className="btn pequeno" disabled={testandoProxy} title="Testar a conexão do proxy sem mudar o perfil" onClick={diagnosticarProxy}>{testandoProxy ? 'Testando…' : 'Testar proxy'}</button>
         <button className="btn pequeno icone" title="Substituir" aria-label="Substituir" onClick={aoSubstituir}>{Icone.trocar}</button>
         <button className="btn pequeno icone" title="Trazer para frente" aria-label="Trazer para frente" onClick={() => chamar('trazerParaFrente', n.slot)}>{Icone.frente}</button>
         <button className="btn pequeno icone" title="Encerrar" aria-label="Encerrar" onClick={() => chamar('encerrar', [n.slot])}>{Icone.fechar}</button>
