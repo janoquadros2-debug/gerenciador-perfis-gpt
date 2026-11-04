@@ -53,6 +53,7 @@ export const CONFIG_PADRAO: Configuracoes = {
   reorganizarAposLote: true,
   cookiesPadrao: 'recusar',
   diagnosticoReproducao: true,
+  recuperarTravamento: true,
   apagarAoSair: false,
   etiquetaApagarAoSair: 'Testes',
   janelas: {
