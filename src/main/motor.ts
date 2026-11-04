@@ -26,6 +26,7 @@ interface Sessao {
   fechando?: boolean
   amostraMidia?: AmostraMidia
   amostraEm?: number
+  semAvancoDesde?: number // quando o tempo da mídia deixou de avançar
 }
 
 interface ItemFila {
@@ -742,41 +743,53 @@ export class Motor extends EventEmitter {
 
   private atualizarDiagnostico(s: Sessao, atual: AmostraMidia) {
     const anterior = s.amostraMidia
-    const antes = s.amostraEm ?? 0
     const agora = Date.now()
     const anteriorStatus = s.info.reproducao
+    const avancou = !!(anterior?.encontrado && atual.encontrado && atual.tempo > anterior.tempo + 0.3)
+
     s.info.avisoCookies = atual.avisoCookies
     s.info.reproducaoEm = agora
+
+    if (avancou || !atual.encontrado || atual.pausado || atual.encerrado) {
+      s.semAvancoDesde = undefined
+    } else if (!s.semAvancoDesde) {
+      s.semAvancoDesde = agora
+    }
+    const semAvancoHa = s.semAvancoDesde ? agora - s.semAvancoDesde : 0
+
     if (atual.erro) {
       s.info.reproducao = 'erro'
-      s.info.reproducaoDetalhe = 'Erro informado pelo elemento de vídeo'
+      s.info.reproducaoDetalhe = 'O elemento de vídeo reportou um erro'
     } else if (!atual.encontrado) {
       s.info.reproducao = 'sem-video'
-      s.info.reproducaoDetalhe = 'Nenhum elemento de vídeo visível encontrado'
+      s.info.reproducaoDetalhe = 'Nenhum elemento de vídeo visível foi localizado'
     } else if (atual.encerrado) {
       s.info.reproducao = 'encerrado'
-      s.info.reproducaoDetalhe = 'Reprodução finalizada'
+      s.info.reproducaoDetalhe = 'O vídeo foi encerrado'
     } else if (atual.pausado) {
       s.info.reproducao = 'pausado'
-      s.info.reproducaoDetalhe = 'Player informa pausa'
+      s.info.reproducaoDetalhe = 'O player informa que está pausado'
+    } else if (avancou) {
+      s.info.reproducao = 'reproduzindo'
+      s.info.reproducaoDetalhe = 'O tempo do player avançou desde a última verificação'
+    } else if (semAvancoHa >= 30000) {
+      // Não confundir a falta de dados com suspensão do vídeo pelo site ou proxy.
+      s.info.reproducao = 'inconclusivo'
+      s.info.reproducaoDetalhe = `Sem avanço de tempo há ${Math.floor(semAvancoHa / 1000)} s. Verifique rede, player e proxy; um F5 pode não resolver.`
     } else if (atual.esperando || atual.pronto < 2) {
       s.info.reproducao = 'carregando'
-      s.info.reproducaoDetalhe = 'Aguardando dados de vídeo'
-    } else if (anterior?.encontrado && !anterior.pausado && agora - antes >= 4000 && atual.tempo > anterior.tempo + 0.5) {
-      s.info.reproducao = 'reproduzindo'
-      s.info.reproducaoDetalhe = 'O tempo de vídeo avançou entre as verificações'
+      s.info.reproducaoDetalhe = `Aguardando dados do vídeo (${Math.floor(semAvancoHa / 1000)} s)`
     } else {
-      // Não classificar um quadro estático como travamento sem evidência adicional.
       s.info.reproducao = 'inconclusivo'
-      s.info.reproducaoDetalhe = 'Aguardando confirmação de avanço do vídeo'
+      s.info.reproducaoDetalhe = 'Aguardando uma segunda leitura do tempo do vídeo'
     }
-    if (anteriorStatus && anteriorStatus !== s.info.reproducao && s.info.reproducao !== 'inconclusivo')
-      this.registrar(s, 'video', s.info.reproducaoDetalhe ?? 'Estado de mídia alterado')
-    s.amostraMidia = atual
-    s.amostraEm = agora
+
     if (anteriorStatus && anteriorStatus !== s.info.reproducao && s.info.reproducao !== 'inconclusivo') {
+      this.registrar(s, 'video', s.info.reproducaoDetalhe ?? 'Estado da mídia alterado')
       logInfo(`Navegador #${s.info.slot}`, `${s.perfil.nome}: ${s.info.reproducaoDetalhe}`)
     }
+    s.amostraMidia = atual
+    s.amostraEm = agora
   }
 
   agendarMiniaturas() {
