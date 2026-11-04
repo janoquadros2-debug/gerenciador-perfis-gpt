@@ -173,6 +173,7 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
   const [testandoProxy, setTestandoProxy] = useState(false)
   const [erroTeste, setErroTeste] = useState('')
   const [verHistorico, setVerHistorico] = useState(false)
+  const [verificandoVideo, setVerificandoVideo] = useState(false)
   const diagnosticarProxy = async () => {
     setTestandoProxy(true)
     setErroTeste('')
@@ -206,6 +207,10 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
             Vídeo: {({ analisando: 'analisando', reproduzindo: 'reproduzindo', pausado: 'pausado', carregando: 'carregando', encerrado: 'encerrado', 'sem-video': 'não encontrado', inconclusivo: 'inconclusivo', erro: 'erro' } as const)[n.reproducao]}
           </span>
           {n.avisoCookies && <span className="selo erro">Aviso de cookies detectado</span>}
+          {n.anuncioProvavel && <span className="selo neutro" title="Indício visual; não é confirmação da entrega de publicidade">Possível anúncio</span>}
+          {n.recuperacao === 'tentando' && <span className="selo neutro">Verificando carregamento · tentativa {n.tentativasRecuperacao ?? 0}/2</span>}
+          {n.recuperacao === 'analisando' && (n.tentativasRecuperacao ?? 0) > 0 && <span className="selo neutro">Aguardando após F5 ({n.tentativasRecuperacao}/2)</span>}
+          {n.recuperacao === 'intervencao' && <span className="selo erro">Precisa de intervenção</span>}
         </div>
       )}
       <div className="dados">
@@ -231,6 +236,7 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
           </>
         )}
       </div>
+      {n.reproducaoDetalhe && <span className="dica" title={n.reproducaoDetalhe}>{n.reproducaoDetalhe}</span>}
       {n.diagnosticoProxy && <span className={`selo ${n.diagnosticoProxy.ok ? 'ok' : 'erro'}`}>
         Proxy: {n.diagnosticoProxy.ok ? `OK · ${n.diagnosticoProxy.ms ?? '?'} ms` : n.diagnosticoProxy.erro ?? 'falha'}
       </span>}
@@ -252,6 +258,12 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
         <button className="btn pequeno" style={{ flex: 1 }} onClick={() => chamar('f5', n.slot)}>F5</button>
         <button className="btn pequeno" title="Programar ou desativar F5 e fechamento automáticos neste perfil" onClick={aoProgramar}>Tempos</button>
         <button className="btn pequeno" disabled={testandoProxy} title="Testar a conexão do proxy sem mudar o perfil" onClick={diagnosticarProxy}>{testandoProxy ? 'Testando…' : 'Testar proxy'}</button>
+        <button className="btn pequeno" disabled={verificandoVideo || n.status !== 'ok'} onClick={async () => {
+          setVerificandoVideo(true)
+          try { await chamar('verificarVideoAgora', n.slot) } catch (e) { setErroTeste(String(e instanceof Error ? e.message : e)) }
+          finally { setVerificandoVideo(false) }
+        }}>{verificandoVideo ? 'Verificando…' : 'Verificar vídeo'}</button>
+        {n.recuperacao === 'intervencao' && <button className="btn pequeno" title="Limpar alerta e iniciar nova rodada de monitoramento" onClick={() => chamar('retomarDiagnostico', n.slot)}>Retomar diagnóstico</button>}
         <button className="btn pequeno icone" title="Substituir" aria-label="Substituir" onClick={aoSubstituir}>{Icone.trocar}</button>
         <button className="btn pequeno icone" title="Trazer para frente" aria-label="Trazer para frente" onClick={() => chamar('trazerParaFrente', n.slot)}>{Icone.frente}</button>
         <button className="btn pequeno icone" title="Encerrar" aria-label="Encerrar" onClick={() => chamar('encerrar', [n.slot])}>{Icone.fechar}</button>
