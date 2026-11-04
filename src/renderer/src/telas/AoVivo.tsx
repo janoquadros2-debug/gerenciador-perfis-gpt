@@ -238,7 +238,7 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
       </div>
       {n.reproducaoDetalhe && <span className="dica" title={n.reproducaoDetalhe}>{n.reproducaoDetalhe}</span>}
       {n.diagnosticoProxy && <span className={`selo ${n.diagnosticoProxy.ok ? 'ok' : 'erro'}`}>
-        Proxy: {n.diagnosticoProxy.ok ? `OK · ${n.diagnosticoProxy.ms ?? '?'} ms` : n.diagnosticoProxy.erro ?? 'falha'}
+        {n.diagnosticoProxy.metodo === 'navegador' ? 'Conexão do navegador' : 'Proxy'}: {n.diagnosticoProxy.ok ? `OK · ${n.diagnosticoProxy.ms ?? '?'} ms` : n.diagnosticoProxy.erro ?? 'falha'}
       </span>}
       {erroTeste && <span className="dica">{erroTeste}</span>}
       {n.erro && <div className="erro-msg">{n.erro}</div>}
