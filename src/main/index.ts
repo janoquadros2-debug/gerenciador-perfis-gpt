@@ -225,6 +225,7 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   },
   f5: (slot: number) => motor.f5(slot),
   verificarVideoAgora: (slot: number) => motor.verificarAgora(slot),
+  testarPlayLocal: (slot: number) => motor.testarPlayLocal(slot),
   retomarDiagnostico: (slot: number) => motor.retomarDiagnostico(slot),
   ajustarCronometros: (slots: number[], tipo: 'f5' | 'fechamento', tempo: import('../shared/types').TempoAberto, aoAcabar?: 'fechar' | 'reabrir') =>
     motor.ajustarCronometros(slots, tipo, tempo, aoAcabar),
