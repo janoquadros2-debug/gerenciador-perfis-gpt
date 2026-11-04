@@ -31,6 +31,9 @@ interface Sessao {
   recuperacaoBloqueadaAte?: number
   leiturasSemAvanco?: number
   estavelDesde?: number
+  pausaDesde?: number
+  leiturasPausado?: number
+  alertaPausa?: boolean
 }
 
 interface ItemFila {
@@ -757,6 +760,32 @@ export class Motor extends EventEmitter {
     s.info.anuncioProvavel = atual.anuncioProvavel
     s.info.reproducaoEm = agora
 
+    // HTMLMediaElement.paused = true NÃO é buffering. Antes, esse estado era
+    // excluído da recuperação e também nunca gerava um alerta após longa pausa.
+    // Alertar após múltiplas leituras, sem iniciar reprodução automaticamente.
+    if (atual.encontrado && atual.pausado && !atual.encerrado && !atual.anuncioProvavel && !atual.avisoCookies) {
+      if (!s.pausaDesde) s.pausaDesde = agora
+      s.leiturasPausado = (s.leiturasPausado ?? 0) + 1
+      if (!s.alertaPausa && agora - s.pausaDesde >= 30000 && s.leiturasPausado >= 3) {
+        s.alertaPausa = true
+        s.info.recuperacao = 'intervencao'
+        s.info.proximaRecuperacaoEm = undefined
+        const motivo = 'Player pausado há mais de 30 segundos. Confira se a pausa foi intencional, se o Rumble pede interação ou se existe um bloqueio.'
+        this.registrar(s, 'video', motivo)
+        logAviso(`Navegador #${s.info.slot}`, motivo)
+        this.avisarMudanca()
+      }
+    } else {
+      s.pausaDesde = undefined
+      s.leiturasPausado = 0
+      if (s.alertaPausa && avancou) {
+        s.alertaPausa = false
+        s.info.recuperacao = 'normal'
+        s.info.proximaRecuperacaoEm = undefined
+        this.registrar(s, 'video', 'A reprodução voltou a avançar; alerta de pausa encerrado')
+      }
+    }
+
     if (avancou || !atual.encontrado || bloqueio) {
       s.semAvancoDesde = undefined
       s.leiturasSemAvanco = 0
@@ -786,7 +815,9 @@ export class Motor extends EventEmitter {
       s.info.reproducaoDetalhe = 'O vídeo foi encerrado'
     } else if (atual.pausado) {
       s.info.reproducao = 'pausado'
-      s.info.reproducaoDetalhe = 'O player informa que está pausado'
+      s.info.reproducaoDetalhe = s.alertaPausa
+        ? 'Pausa prolongada: verifique o player manualmente. A página está aberta, mas o vídeo não está reproduzindo.'
+        : `O player informa pausa (${Math.round((agora - (s.pausaDesde ?? agora)) / 1000)} s); verificando se persiste`
     } else if (avancou) {
       s.info.reproducao = 'reproduzindo'
       s.info.reproducaoDetalhe = 'O tempo do player avançou desde a última verificação'
@@ -915,6 +946,9 @@ export class Motor extends EventEmitter {
     s.semAvancoDesde = undefined
     s.leiturasSemAvanco = 0
     s.amostraMidia = undefined
+    s.pausaDesde = undefined
+    s.leiturasPausado = 0
+    s.alertaPausa = false
     this.registrar(s, 'video', 'Monitoramento reiniciado manualmente')
     this.avisarMudanca()
   }
