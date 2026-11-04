@@ -75,6 +75,7 @@ export function Configuracoes({ abaInicial }: { abaInicial?: string }) {
             </div>
             <Opcao titulo="Reorganizar janelas após cada grupo de cinco aberturas" desc="Reposiciona as janelas ao concluir um grupo. Em grades lotadas, janelas extras podem continuar parcialmente sobrepostas." ligada={cfg.reorganizarAposLote !== false} aoMudar={(v) => salvar({ reorganizarAposLote: v })} />
             <Opcao titulo="Diagnóstico de reprodução de vídeos" desc="Verifica passivamente se o tempo do player avança. Mostra estado inconclusivo quando não há evidência suficiente. Não inicia reprodução." ligada={cfg.diagnosticoReproducao !== false} aoMudar={(v) => salvar({ diagnosticoReproducao: v })} />
+            <Opcao titulo="Recuperação limitada de carregamento travado" desc="Depois de confirmar buffering por pelo menos 45 s, tenta atualizar a página até duas vezes, com intervalo mínimo de 60 s. Não interfere quando há anúncio ou vídeo pausado. Depois solicita intervenção." ligada={cfg.recuperarTravamento !== false} aoMudar={(v) => salvar({ recuperarTravamento: v })} />
             <div className="opcao">
               <label className="campo">
                 Preferência de cookies para perfis existentes
