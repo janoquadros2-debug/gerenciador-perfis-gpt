@@ -748,6 +748,7 @@ export class Motor extends EventEmitter {
     const avancou = !!(anterior?.encontrado && atual.encontrado && atual.tempo > anterior.tempo + 0.3)
 
     s.info.avisoCookies = atual.avisoCookies
+    s.info.anuncioProvavel = atual.anuncioProvavel
     s.info.reproducaoEm = agora
 
     if (avancou || !atual.encontrado || atual.pausado || atual.encerrado) {
