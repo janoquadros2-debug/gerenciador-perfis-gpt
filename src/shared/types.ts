@@ -72,6 +72,9 @@ export interface Navegador {
   reproducaoDetalhe?: string
   avisoCookies?: boolean
   anuncioProvavel?: boolean // indicador visual de anúncio: estimativa, não confirmação
+  recuperacao?: 'analisando' | 'tentando' | 'intervencao' | 'normal'
+  tentativasRecuperacao?: number
+  proximaRecuperacaoEm?: number
   diagnosticoProxy?:  ResultadoTesteProxy
   historico?: HistoricoPerfil[]
 }
@@ -112,6 +115,7 @@ export interface Configuracoes {
   reorganizarAposLote?: boolean // reposiciona janelas ao concluir um grupo
   cookiesPadrao?: 'aceitar' | 'recusar' | 'desligado'
   diagnosticoReproducao?: boolean
+  recuperarTravamento?: boolean // F5 limitado após travamento confirmado, sem interagir com anúncios
   apagarAoSair: boolean // apaga perfis do Dolphin ao fechar o programa
   etiquetaApagarAoSair: string // só apaga os perfis com esta etiqueta ('' = todos)
   janelas: ConfigJanelas
