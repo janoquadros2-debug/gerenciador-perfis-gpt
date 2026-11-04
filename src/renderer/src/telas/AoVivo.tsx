@@ -25,6 +25,8 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
   const [ampliado, setAmpliado] = useState<Navegador | null>(null)
   const [trocando, setTrocando] = useState<number[] | null>(null)
   const [grupoMudando, setGrupoMudando] = useState(false)
+  const [testandoPlay, setTestandoPlay] = useState(false)
+  const [resultadoPlay, setResultadoPlay] = useState('')
   const [cronometros, setCronometros] = useState<{ slots: number[]; nome: string } | null>(null)
 
   const navs = estado?.navegadores ?? []
@@ -55,6 +57,15 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
             <button className="btn" onClick={() => chamar('pausar')}>Pausar</button>
           )}
           <button className="btn" onClick={() => chamar('organizarTodos')}>Organizar janelas</button>
+          <button className="btn" disabled={testandoPlay || navs.length !== 1 || navs[0]?.status !== 'ok' || !!estado?.fila} onClick={async () => {
+            setTestandoPlay(true)
+            setResultadoPlay('')
+            try {
+              const r = await chamar<{ok:boolean;detalhe:string}>('testarPlayLocal', navs[0].slot)
+              setResultadoPlay(r.detalhe)
+            } catch (e) {setResultadoPlay('Erro no teste local: ' + String(e instanceof Error ? e.message : e))}
+            finally {setTestandoPlay(false)}
+          }}>{testandoPlay ? 'Testando Play…' : 'Testar Play automático (local)'}</button>
           <button className="btn primario" disabled={!navs.length} onClick={() => setCronometros({ slots: navs.map((n) => n.slot), nome: 'todos os perfis abertos' })}>F5 / Fechamento em todos</button>
           <button className="btn perigo" disabled={!navs.length} onClick={async () => (await confirmar('Fechar todos os navegadores?', { perigo: true })) && chamar('encerrarTodos')}>Fechar todos</button>
         </div>
@@ -62,7 +73,8 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
 
       <div className="painel">
         <strong>Central de saúde dos navegadores</strong>
-        <span className="dica">Diagnóstico passivo: reprodução confirmada pelo avanço do tempo do vídeo, quando disponível. O sistema não inicia o player nem gera visualizações.</span>
+        <span className="dica">Diagnóstico passivo dos sites: confirma reprodução pelo avanço do vídeo. O botão de Play automático abre um player de demonstração gerado localmente, com apenas um perfil, sem reproduzir lives externas.</span>
+        {resultadoPlay && <div className="dica" role="status">{resultadoPlay}</div>}
         <div className="linha" style={{ gap: 12, flexWrap: 'wrap' }}>
           <span className="selo ok">{ok} navegadores carregados</span>
           <span className="selo neutro">{navs.filter((n) => n.status === 'abrindo').length} iniciando</span>
