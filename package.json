@@ -1,0 +1,40 @@
+{
+  "name": "gerenciador-perfis-gpt",
+  "productName": "Gerenciador de Perfis GPT",
+  "version": "0.9.9",
+  "description": "Painel para abrir e acompanhar perfis do Dolphin Anty",
+  "main": "./out/main/index.js",
+  "author": "Gerenciador de Perfis GPT",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "exe": "electron-vite build && electron-builder --win --x64 --publish never"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "@fontsource/jetbrains-mono": "^5.1.0",
+    "@fontsource/space-grotesk": "^5.1.0",
+    "electron-updater": "^6.3.9",
+    "https-proxy-agent": "^7.0.5",
+    "puppeteer-core": "^23.6.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socks-proxy-agent": "^8.0.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "electron": "^33.0.2",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "@types/ws": "^8.5.12"
+  }
+}

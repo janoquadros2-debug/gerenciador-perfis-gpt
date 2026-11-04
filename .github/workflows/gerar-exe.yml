@@ -1,0 +1,91 @@
+# Monta os instaladores .exe num Windows do GitHub e publica em "Releases".
+# Roda sozinho quando a versão no package.json muda (ex.: 0.2.0 -> 0.2.1).
+# Gera as duas edições:
+#   - Completa (a sua, para os 2 PCs): Gerenciador-de-Perfis-GPT-Setup-X.exe  · canal de atualização "latest"
+#   - Padrão (sem os recursos exclusivos): Gerenciador-de-Perfis-GPT-Padrao-Setup-X.exe · canal "padrao"
+name: Gerar .exe
+
+on:
+  push:
+    branches: [main]
+    paths: ['package.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ver se esta versão já foi publicada
+        id: versao
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "versao=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" > /dev/null 2>&1; then echo "existe=sim" >> "$GITHUB_OUTPUT"; else echo "existe=nao" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-node@v4
+        if: steps.versao.outputs.existe == 'nao'
+        with:
+          node-version: 20
+
+      - run: npm install --no-audit --no-fund
+        if: steps.versao.outputs.existe == 'nao'
+
+      - name: Criar ícone GPT independente
+        if: steps.versao.outputs.existe == 'nao'
+        run: |
+          npm install --no-save --no-package-lock sharp
+          node scripts/gerar-icone.cjs
+
+      - name: Edição Completa
+        if: steps.versao.outputs.existe == 'nao'
+        run: |
+          EDICAO=completa npx electron-vite build
+          npx electron-builder --win --x64 --publish never -c.directories.output=dist/completa
+
+      - name: Edição Padrão
+        if: steps.versao.outputs.existe == 'nao'
+        run: |
+          rm -rf out
+          EDICAO=padrao npx electron-vite build
+          npx electron-builder --win --x64 --publish never \
+            -c.directories.output=dist/padrao \
+            -c.appId=com.gerenciador.perfis.gpt.padrao \
+            -c.productName="Gerenciador de Perfis GPT Padrao" \
+            -c.extraMetadata.productName="Gerenciador de Perfis GPT Padrao" \
+            -c.nsis.shortcutName="Gerenciador de Perfis GPT Padrao" \
+            '-c.nsis.artifactName=Gerenciador-de-Perfis-GPT-Padrao-Setup-${version}.${ext}' \
+            -c.publish.channel=padrao
+
+      # pacote para IA: as instruções + todo o código num arquivo de texto só (para mandar a outra IA)
+      - name: Pacote para IA
+        if: steps.versao.outputs.existe == 'nao'
+        run: |
+          V=${{ steps.versao.outputs.versao }}
+          OUT="dist/pacote-para-ia-$V.txt"
+          { echo "PACOTE DO GERENCIADOR DE PERFIS v$V (instruções + código completo)"; echo
+            cat PARA-IA.md; echo
+            git ls-files \
+              | grep -v -E '\.(png|ico|jpg|woff2?|bat)$|^PARA-IA\.md$|^\.gitignore$' \
+              | while read -r f; do echo; echo "===== ARQUIVO: $f ====="; cat "$f"; echo; done
+          } > "$OUT"
+          ls -la "$OUT"
+
+      - name: Publicar
+        if: steps.versao.outputs.existe == 'nao'
+        run: |
+          V=${{ steps.versao.outputs.versao }}
+          ls -la dist/completa dist/padrao
+          gh release create "v$V" --title "$V" --notes "Versão $V" \
+            dist/completa/*.exe dist/completa/*.blockmap dist/completa/latest.yml \
+            dist/padrao/*.exe dist/padrao/*.blockmap dist/padrao/padrao.yml \
+            dist/pacote-para-ia-*.txt

@@ -1,0 +1,25 @@
+appId: com.gerenciador.perfis.gpt
+productName: Gerenciador de Perfis GPT
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  shortcutName: Gerenciador de Perfis GPT
+  artifactName: Gerenciador-de-Perfis-GPT-Setup-${version}.${ext}
+# Para onde as atualizações são publicadas (aba Releases do GitHub).
+publish:
+  provider: github
+  owner: janoquadros2-debug
+  repo: gerenciador-perfis-gpt
+  releaseType: release

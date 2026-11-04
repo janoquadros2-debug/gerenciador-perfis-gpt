@@ -1,0 +1,364 @@
+import { type MouseEvent, type WheelEvent, useEffect, useRef, useState } from 'react'
+import type { EstadoMotor, Navegador, Proxy } from '../../../shared/types'
+import { chamar, useConfig } from '../api'
+import { confirmar } from '../confirmar'
+import { Icone, Modal } from '../componentes'
+import { PainelHardware } from './Hardware'
+
+// Lê "3, 7, 12" ou "10-15" e devolve a lista de números.
+function lerNumeros(texto: string): number[] {
+  const out = new Set<number>()
+  for (const parte of texto.split(/[,;\s]+/)) {
+    const m = parte.match(/^(\d+)(?:-(\d+))?$/)
+    if (!m) continue
+    const a = Number(m[1])
+    const b = m[2] ? Number(m[2]) : a
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) out.add(i)
+  }
+  return [...out]
+}
+
+export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
+  const [cfg, salvar] = useConfig()
+  const [qtd, setQtd] = useState('5')
+  const [numeros, setNumeros] = useState('')
+  const [ampliado, setAmpliado] = useState<Navegador | null>(null)
+  const [trocando, setTrocando] = useState<number[] | null>(null)
+
+  const navs = estado?.navegadores ?? []
+  // relógio de 1 em 1 segundo para a contagem regressiva
+  const [agora, setAgora] = useState(Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const comErro = navs.filter((n) => n.status === 'erro').length
+  const ok = navs.filter((n) => n.status === 'ok').length
+  const alvo = lerNumeros(numeros).filter((n) => navs.some((x) => x.slot === n))
+
+  return (
+    <>
+      <div className="cabecalho">
+        <div>
+          <h1>Ao vivo</h1>
+          <p className="sub">Executando neste computador · {estado?.fila ? `${estado.fila} na fila para abrir` : 'nenhum na fila'}</p>
+        </div>
+        <div className="linha">
+          {estado?.pausado ? (
+            <button className="btn primario" onClick={() => chamar('retomar')}>Retomar</button>
+          ) : (
+            <button className="btn" onClick={() => chamar('pausar')}>Pausar</button>
+          )}
+          <button className="btn" onClick={() => chamar('organizarTodos')}>Organizar janelas</button>
+          <button className="btn perigo" disabled={!navs.length} onClick={async () => (await confirmar('Fechar todos os navegadores?', { perigo: true })) && chamar('encerrarTodos')}>Fechar todos</button>
+        </div>
+      </div>
+
+      <PainelHardware />
+      <div className="painel">
+        <div className="linha" style={{ gap: 14 }}>
+          <span className="selo ok">{ok} funcionando</span>
+          <span className="selo erro">{comErro} com erro</span>
+          <span className="espaco" />
+          <button className="btn pequeno perigo" disabled={!comErro} onClick={() => chamar('recarregarComErro')}>Recarregar todos com erro ({comErro})</button>
+          <button className="btn pequeno" disabled={!comErro} onClick={() => chamar('substituirTodosComErro')}>Substituir todos com erro</button>
+        </div>
+        <div className="linha" style={{ gap: 14, alignItems: 'flex-end' }}>
+          <label className="campo">
+            Adicionar navegadores (cria perfis novos, cada um com o próximo proxy livre)
+            <span className="linha" style={{ gap: 6 }}>
+              <button className="btn" onClick={() => chamar('adicionar', 1)}>+1</button>
+              <input className="solto" type="number" min={1} value={qtd} onChange={(e) => setQtd(e.target.value)} style={{ width: 80 }} aria-label="Quantidade para adicionar" />
+              <button className="btn primario" onClick={() => Number(qtd) > 0 && chamar('adicionar', Number(qtd))}>Adicionar</button>
+            </span>
+          </label>
+          <label className="campo">
+            Navegadores pelo número (ex.: 12 ou 3, 7, 12 ou 10-15)
+            <span className="linha" style={{ gap: 6 }}>
+              <input className="solto" value={numeros} onChange={(e) => setNumeros(e.target.value)} style={{ width: 180 }} placeholder="12" />
+              <button className="btn perigo" disabled={!alvo.length} onClick={() => { chamar('encerrar', alvo); setNumeros('') }}>Encerrar</button>
+              <button className="btn" disabled={!alvo.length} onClick={() => setTrocando(alvo)}>Substituir</button>
+            </span>
+          </label>
+          <span className="espaco" />
+          <label className="campo">
+            Verificar o site a cada
+            <select className="solto" value={cfg?.intervaloVerificacao ?? 10} onChange={(e) => salvar({ intervaloVerificacao: Number(e.target.value) })}>
+              <option value={5}>5 segundos</option>
+              <option value={10}>10 segundos</option>
+              <option value={30}>30 segundos</option>
+              <option value={60}>1 minuto</option>
+              <option value={0}>Desligado</option>
+            </select>
+          </label>
+          <label className="campo">
+            Miniaturas
+            <select className="solto" value={cfg?.miniaturas} onChange={(e) => salvar({ miniaturas: e.target.value as any })}>
+              <option value="rapida">Rápida</option>
+              <option value="normal">Normal</option>
+              <option value="economica">Econômica</option>
+              <option value="desligadas">Desligadas</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {navs.length === 0 ? (
+        <div className="painel vazio">Nenhum navegador aberto. Abra perfis na aba Perfis ou use "Adicionar".</div>
+      ) : (
+        <div className="grade-vivo">
+          {navs.map((n) => (
+            <CartaoVivo key={n.slot} n={n} agora={agora} aoAmpliar={() => setAmpliado(n)} aoSubstituir={() => setTrocando([n.slot])} />
+          ))}
+        </div>
+      )}
+
+      {ampliado && <Ampliado n={ampliado} aoFechar={() => setAmpliado(null)} />}
+      {trocando && <Substituir slots={trocando} aoFechar={() => { setTrocando(null); setNumeros('') }} />}
+    </>
+  )
+}
+
+function restante(ms: number) {
+  const s = Math.max(0, Math.ceil(ms / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const seg = String(s % 60).padStart(2, '0')
+  return h ? `${h}h${String(m).padStart(2, '0')}:${seg}` : `${m}:${seg}`
+}
+
+function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir }: { n: Navegador; agora: number; aoAmpliar: () => void; aoSubstituir: () => void }) {
+  const textoStatus = n.status === 'ok' ? 'OK' : n.status === 'erro' ? 'ERRO' : 'ABRINDO'
+  return (
+    <article className={`vivo ${n.status}`}>
+      <button type="button" className="tela" onClick={aoAmpliar} aria-label={`Ver ${n.perfilNome} em tela grande`} style={{ padding: 0 }}>
+        {n.miniatura ? <img src={`data:image/jpeg;base64,${n.miniatura}`} alt="" /> : <span>{n.status === 'abrindo' ? 'Abrindo…' : 'Sem prévia'}</span>}
+      </button>
+      <div className="linha" style={{ justifyContent: 'space-between' }}>
+        <span className="linha" style={{ gap: 8 }}>
+          <span className="numero">#{n.slot}</span>
+          <strong>{n.perfilNome}</strong>
+        </span>
+        <span className="selo" style={{ background: 'rgba(255,255,255,0.12)' }}>{textoStatus}</span>
+      </div>
+      <div className="site">
+        <span className={`selo ${n.siteOk === undefined ? 'neutro' : n.siteOk ? 'ok' : 'erro'}`} style={{ flex: '0 0 auto' }}>
+          {n.siteOk === undefined ? '…' : n.siteOk ? 'OK' : 'FALHA'}
+        </span>
+        <span className="mono url" title={n.url}>{n.url ? n.url.replace(/^https?:\/\//, '') : '—'}</span>
+      </div>
+      {n.verificadoEm && <span className="dica" style={{ fontSize: 11, marginTop: -6 }}>Verificado há {Math.max(0, Math.round((agora - n.verificadoEm) / 1000))}s</span>}
+      <div className="dados">
+        <span>Sistema</span><span>{n.sistema}</span>
+        <span>IP de saída</span><span className="mono">{n.ip ?? '—'}</span>
+        <span>País</span><span>{n.pais ?? '—'}</span>
+        <span>Proxy</span><span className="mono" style={{ overflowWrap: 'anywhere' }}>{n.proxy ?? 'Sem proxy'}</span>
+        <span>Fecha em</span>
+        <span>
+          {n.fechando ? (
+            <strong style={{ fontSize: 13, color: 'var(--amarelo)' }}>{n.reabreAoAcabar ? 'Fechando para reabrir…' : 'Fechando…'}</strong>
+          ) : n.fechaEm ? (
+            <strong className="mono" style={{ fontSize: 13, color: n.fechaEm - agora < 60_000 ? 'var(--amarelo)' : undefined }} title={`Fecha às ${new Date(n.fechaEm).toLocaleTimeString('pt-BR')}`}>
+              {restante(n.fechaEm - agora)}
+              {n.reabreAoAcabar && <span className="dica" style={{ fontWeight: 400 }}> · reabre</span>}
+            </strong>
+          ) : n.status === 'ok' ? 'Sem limite' : '—'}
+        </span>
+        {n.proximoF5 && (
+          <>
+            <span>Próximo F5</span>
+            <strong className="mono" style={{ fontSize: 13 }} title={`F5 às ${new Date(n.proximoF5).toLocaleTimeString('pt-BR')}`}>{restante(Math.max(0, n.proximoF5 - agora))}</strong>
+          </>
+        )}
+      </div>
+      {n.erro && <div className="erro-msg">{n.erro}</div>}
+      <div className="linha" style={{ gap: 6 }}>
+        <button className="btn pequeno" style={{ flex: 1 }} onClick={() => chamar('f5', n.slot)}>F5</button>
+        <button className="btn pequeno icone" title="Substituir" aria-label="Substituir" onClick={aoSubstituir}>{Icone.trocar}</button>
+        <button className="btn pequeno icone" title="Trazer para frente" aria-label="Trazer para frente" onClick={() => chamar('trazerParaFrente', n.slot)}>{Icone.frente}</button>
+        <button className="btn pequeno icone" title="Encerrar" aria-label="Encerrar" onClick={() => chamar('encerrar', [n.slot])}>{Icone.fechar}</button>
+      </div>
+    </article>
+  )
+}
+
+function Ampliado({ n, aoFechar }: { n: Navegador; aoFechar: () => void }) {
+  const [img, setImg] = useState<string | undefined>()
+  const [abas, setAbas] = useState<{ indice: number; titulo: string; url: string; ativa: boolean }[]>([])
+  const [texto, setTexto] = useState('')
+  const [controlar, setControlar] = useState(true)
+  const [marca, setMarca] = useState<{ x: number; y: number } | null>(null)
+  const atualizar = useRef<() => void>(() => undefined)
+  useEffect(() => {
+    let ativo = true
+    let ocupado = false
+    const pegar = async () => {
+      if (ocupado) return
+      ocupado = true
+      await chamar<string | undefined>('miniaturaGrande', n.slot).then((i) => ativo && setImg(i)).catch(() => undefined)
+      ocupado = false
+    }
+    const pegarAbas = () => chamar<typeof abas>('abasNavegador', n.slot).then((a) => ativo && setAbas(a)).catch(() => undefined)
+    atualizar.current = () => {
+      setTimeout(pegar, 250)
+      setTimeout(pegar, 900)
+      setTimeout(pegarAbas, 900)
+    }
+    pegar()
+    pegarAbas()
+    const t = setInterval(pegar, 1000)
+    const t2 = setInterval(pegarAbas, 4000)
+    return () => {
+      ativo = false
+      clearInterval(t)
+      clearInterval(t2)
+    }
+  }, [n.slot])
+
+  const posicao = (e: MouseEvent<HTMLImageElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }
+  }
+  const clicar = async (e: MouseEvent<HTMLImageElement>, botao: 'left' | 'right' = 'left', duplo = false) => {
+    if (!controlar) return
+    e.preventDefault()
+    const p = posicao(e)
+    setMarca(p)
+    setTimeout(() => setMarca(null), 500)
+    await chamar('clicarNavegador', n.slot, p.x, p.y, botao, duplo).catch(() => undefined)
+    atualizar.current()
+  }
+  const rolar = (e: WheelEvent<HTMLImageElement>) => {
+    if (!controlar) return
+    const r = e.currentTarget.getBoundingClientRect()
+    chamar('rolarNavegador', n.slot, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, Math.max(-800, Math.min(800, e.deltaY))).catch(() => undefined)
+    atualizar.current()
+  }
+  const enviar = async (tecla?: string) => {
+    await chamar('digitarNavegador', n.slot, tecla ? '' : texto, tecla ?? undefined).catch(() => undefined)
+    if (!tecla) setTexto('')
+    atualizar.current()
+  }
+
+  return (
+    <Modal titulo={`#${n.slot} · ${n.perfilNome}`} sub={controlar ? 'Controle ligado: clique, role e digite direto na tela' : 'Só olhando (atualiza a cada 1 s)'} aoFechar={aoFechar} grande>
+      {abas.length > 1 && (
+        <div className="linha" style={{ gap: 6, flexWrap: 'nowrap', overflowX: 'auto' }}>
+          {abas.map((a) => (
+            <button
+              key={a.indice}
+              type="button"
+              className={`pilula ${a.ativa ? 'ativa' : ''}`}
+              style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}
+              title={a.url}
+              onClick={() => chamar('escolherAba', n.slot, a.indice).then(() => atualizar.current())}
+            >
+              {a.titulo}
+            </button>
+          ))}
+        </div>
+      )}
+      <div style={{ background: '#0e0e16', borderRadius: 12, minHeight: 300, display: 'grid', placeItems: 'center', overflow: 'hidden', position: 'relative' }}>
+        {img ? (
+          <div style={{ position: 'relative', lineHeight: 0 }}>
+            <img
+              src={`data:image/jpeg;base64,${img}`}
+              alt={`Tela do navegador ${n.perfilNome}`}
+              style={{ maxWidth: '100%', maxHeight: '62vh', cursor: controlar ? 'pointer' : 'default', userSelect: 'none' }}
+              draggable={false}
+              onClick={(e) => clicar(e)}
+              onDoubleClick={(e) => clicar(e, 'left', true)}
+              onContextMenu={(e) => clicar(e, 'right')}
+              onWheel={rolar}
+            />
+            {marca && (
+              <span style={{ position: 'absolute', left: `${marca.x * 100}%`, top: `${marca.y * 100}%`, width: 26, height: 26, marginLeft: -13, marginTop: -13, borderRadius: 99, border: '3px solid #ff4f9a', pointerEvents: 'none' }} />
+            )}
+          </div>
+        ) : (
+          <span className="dica">Carregando…</span>
+        )}
+      </div>
+      <div className="linha" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <label className="linha" style={{ gap: 6, cursor: 'pointer' }}>
+          <input type="checkbox" checked={controlar} onChange={(e) => setControlar(e.target.checked)} /> Controlar pela tela
+        </label>
+        <button className="btn pequeno" disabled={!controlar} onClick={() => chamar('clicarNavegador', n.slot, 0.5, 0.5).then(() => atualizar.current())}>Clicar no meio</button>
+        <input
+          className="solto"
+          value={texto}
+          disabled={!controlar}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && (texto ? enviar().then(() => enviar('Enter')) : enviar('Enter'))}
+          placeholder="Digitar no navegador (Enter envia)"
+          style={{ flex: 1, minWidth: 180 }}
+        />
+        <button className="btn pequeno" disabled={!controlar || !texto} onClick={() => enviar()}>Digitar</button>
+        <button className="btn pequeno" disabled={!controlar} onClick={() => enviar('Enter')}>Enter</button>
+        <button className="btn pequeno" disabled={!controlar} onClick={() => enviar('Escape')}>Esc</button>
+        <button className="btn pequeno" disabled={!controlar} onClick={() => enviar('Space')}>Espaço</button>
+      </div>
+      <div className="linha" style={{ justifyContent: 'flex-end' }}>
+        <button className="btn" onClick={() => chamar('f5', n.slot).then(() => atualizar.current())}>F5</button>
+        <button className="btn primario" onClick={() => chamar('trazerParaFrente', n.slot)}>Trazer para frente</button>
+      </div>
+    </Modal>
+  )
+}
+
+function Substituir({ slots, aoFechar }: { slots: number[]; aoFechar: () => void }) {
+  const [perfil, setPerfil] = useState<'mesmo' | 'outro'>('mesmo')
+  const [modo, setModo] = useState<'proximo' | 'escolher' | 'colar'>('proximo')
+  const [proxies, setProxies] = useState<Proxy[]>([])
+  const [escolhido, setEscolhido] = useState('')
+  const [texto, setTexto] = useState('')
+  useEffect(() => {
+    chamar<Proxy[]>('proxies').then((l) => {
+      setProxies(l)
+      setEscolhido(l[0]?.id ?? '')
+    })
+  }, [])
+
+  const confirmar = async () => {
+    const proxy = modo === 'proximo' ? 'proximo' : modo === 'escolher' ? { id: escolhido } : { texto }
+    for (const slot of slots) await chamar('substituir', slot, { perfil, proxy })
+    aoFechar()
+  }
+
+  return (
+    <Modal titulo={`Substituir ${slots.map((s) => '#' + s).join(', ')}`} sub="Fecha e abre outro no mesmo lugar da grade." aoFechar={aoFechar}>
+      <div className="campo">
+        Qual perfil entra no lugar
+        <div className="escolhas">
+          <label className={`escolha ${perfil === 'mesmo' ? 'marcada' : ''}`}><input type="radio" checked={perfil === 'mesmo'} onChange={() => setPerfil('mesmo')} />O mesmo, com proxy novo</label>
+          <label className={`escolha ${perfil === 'outro' ? 'marcada' : ''}`}><input type="radio" checked={perfil === 'outro'} onChange={() => setPerfil('outro')} />Outro perfil livre</label>
+        </div>
+      </div>
+      <div className="campo">
+        Proxy
+        <div className="escolhas">
+          {([['proximo', 'Próximo da lista'], ['escolher', 'Escolher um'], ['colar', 'Colar um novo']] as const).map(([v, t]) => (
+            <label key={v} className={`escolha ${modo === v ? 'marcada' : ''}`}><input type="radio" checked={modo === v} onChange={() => setModo(v)} />{t}</label>
+          ))}
+        </div>
+      </div>
+      {modo === 'escolher' && (
+        <label className="campo">
+          Proxy salvo
+          <select value={escolhido} onChange={(e) => setEscolhido(e.target.value)}>
+            {proxies.map((p) => (
+              <option key={p.id} value={p.id}>{p.tipo}://{p.host}:{p.porta} · usado {p.usos}x{p.ultimoTeste ? (p.ultimoTeste.ok ? ' · ok' : ' · falhou') : ''}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {modo === 'colar' && (
+        <label className="campo">Proxy<input className="mono" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="ip:porta:usuario:senha" /></label>
+      )}
+      <div className="linha" style={{ justifyContent: 'flex-end' }}>
+        <button className="btn" onClick={aoFechar}>Cancelar</button>
+        <button className="btn primario" disabled={(modo === 'escolher' && !escolhido) || (modo === 'colar' && !texto.trim())} onClick={confirmar}>Substituir</button>
+      </div>
+    </Modal>
+  )
+}
