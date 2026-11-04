@@ -23,6 +23,7 @@ export interface ResultadoTesteProxy {
   quando: number
   categoria?: 'ok' | 'autenticacao' | 'dns' | 'tempo' | 'conexao' | 'http' | 'resposta'
   httpStatus?: number
+  metodo?: 'direto' | 'navegador' // navegador confirma conexão, não valida credenciais do proxy
 }
 
 export type ModoDistribuicao = 'sequencia' | 'sorteado' | 'sem-repetir' | 'sorteado-sem-repetir'
