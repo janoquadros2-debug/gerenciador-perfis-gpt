@@ -238,7 +238,7 @@ function EditarPerfil({ perfil, aoFechar }: { perfil: Perfil; aoFechar: () => vo
 const LIMITE_PLANO = 100
 
 function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void }) {
-  const [cfg] = useConfig()
+  const [cfg, salvarCfg] = useConfig()
   const [o, setO] = useState<OpcoesCriacaoMassa>({
     quantidade: 10, nomeBase: 'Teste', comecarDe: 1, modoProxy: 'nenhum', tipoProxy: 'http', etiqueta: 'Testes', sistema: 'windows', listaProxies: '', proxyUnico: '', site: ''
   })
@@ -324,6 +324,15 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
           </select>
         </label>
       </div>
+      <label className="linha" style={{ gap: 8, cursor: 'pointer', alignItems: 'flex-start' }}>
+        <input type="checkbox" checked={cfg?.manterAtivas !== false} onChange={(e) => salvarCfg({ manterAtivas: e.target.checked })} style={{ marginTop: 3 }} />
+        <span>
+          Manter todas as janelas ativas, mesmo cobertas
+          <br />
+          <span className="dica">Janelas atrás de outras ou minimizadas continuam rodando como se estivessem na frente (o vídeo não pausa nem baixa a qualidade). Usa um pouco mais de CPU e placa de vídeo. Vale para todos os navegadores que o programa abrir.</span>
+        </span>
+      </label>
+
       <div className="campo">
         Aviso de cookies (quando um site perguntar)
         <div className="escolhas">

@@ -5,6 +5,7 @@
 import type { Perfil, Proxy } from '../shared/types'
 import { store } from './store'
 import { logAviso } from './log'
+import { ARGS_MANTER_ATIVAS } from './ativas'
 
 const NUVEM = 'https://dolphin-anty-api.com'
 const local = () => `http://localhost:${store.config.portaLocalDolphin}`
@@ -152,7 +153,7 @@ export async function criarPerfil(nome: string, opcoes: OpcoesPerfil) {
       const msg = String(e?.message)
       const hardware = /E_HARDWARE/.test(msg)
       // campo que o Dolphin não aceitou (versão diferente da API): tenta sem os extras do modo anônimo
-      if (!hardware && !/E_PROXY/i.test(msg) && !extrasRecusados && (opcoes.privacidade ?? 'anonimo') === 'anonimo' && /\b4(00|22)\b|invalid|validation/i.test(msg)) {
+      if (!hardware && !/E_PROXY/i.test(msg) && !extrasRecusados && ((opcoes.privacidade ?? 'anonimo') === 'anonimo' || store.config.manterAtivas !== false) && /\b4(00|22)\b|invalid|validation/i.test(msg)) {
         extrasRecusados = true
         logAviso('Criação', `O Dolphin recusou algumas opções extras de privacidade (${msg.slice(0, 120)}). Criando sem elas.`)
         t--
@@ -215,6 +216,8 @@ async function enviarPerfil(nome: string, opcoes: OpcoesPerfil, fp: any, simples
     platformVersion: fp.platformVersion,
     proxy: proxyParaDolphin(opcoes.proxy)
   }
+  // janelas cobertas não "dormem" (opção da criação de perfis)
+  if (store.config.manterAtivas !== false && !semExtras) corpo.args = ARGS_MANTER_ATIVAS
   if (anonimo) {
     corpo.audio = { mode: 'noise' }
     if (!semExtras) {

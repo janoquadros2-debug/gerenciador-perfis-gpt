@@ -47,6 +47,7 @@ export const CONFIG_PADRAO: Configuracoes = {
   intervaloVerificacao: 10,
   iniciarComWindows: false,
   fecharTodosAoSair: true,
+  manterAtivas: true,
   apagarAoSair: false,
   etiquetaApagarAoSair: 'Testes',
   janelas: {

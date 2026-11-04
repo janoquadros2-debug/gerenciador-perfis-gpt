@@ -89,6 +89,7 @@ export interface Configuracoes {
   intervaloVerificacao: number // segundos entre as verificações do site (0 = desligado)
   iniciarComWindows: boolean
   fecharTodosAoSair: boolean
+  manterAtivas?: boolean // janelas cobertas continuam rodando como se estivessem na frente
   apagarAoSair: boolean // apaga perfis do Dolphin ao fechar o programa
   etiquetaApagarAoSair: string // só apaga os perfis com esta etiqueta ('' = todos)
   janelas: ConfigJanelas

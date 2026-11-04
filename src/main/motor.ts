@@ -4,6 +4,7 @@ import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import type { EstadoMotor, Navegador, Perfil, Proxy, TempoAberto } from '../shared/types'
 import { sortearDuracao } from '../shared/sorteio'
 import { type ModoCookies, vigiarCookies } from './cookies'
+import { manterAtivas } from './ativas'
 import * as dolphin from './dolphin'
 import { retanguloDoSlot } from './janelas'
 import { ProxiesEsgotados, proximoProxy, proxyParaTexto, testarProxy } from './proxies'
@@ -250,6 +251,8 @@ export class Motor extends EventEmitter {
       const browser = await puppeteer.connect({ browserWSEndpoint: ws, defaultViewport: null })
       sessao.browser = browser
       browser.on('disconnected', () => this.aoCair(slot, sessao))
+      // janelas cobertas continuam rodando como se estivessem na frente
+      if (cfg.manterAtivas !== false) manterAtivas(browser).catch(() => undefined)
       // aviso de cookies: aceita (ou recusa) sozinho, em todas as abas
       if (sessao.cookies && sessao.cookies !== 'desligado')
         vigiarCookies(browser, () => sessao.cookies ?? 'desligado', (url) =>
