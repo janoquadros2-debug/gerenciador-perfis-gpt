@@ -63,6 +63,7 @@ export class Motor extends EventEmitter {
   private timerMiniatura?: NodeJS.Timeout
   private timerVerificacao?: NodeJS.Timeout
   private timerEstado?: NodeJS.Timeout
+  private indiceMiniatura = 0
 
   constructor() {
     super()
@@ -863,17 +864,23 @@ export class Motor extends EventEmitter {
 
   agendarMiniaturas() {
     clearTimeout(this.timerMiniatura)
-    const intervalo = INTERVALO_MINIATURA[store.config.miniaturas]
+    const base = INTERVALO_MINIATURA[store.config.miniaturas]
+    const quantidade = this.sessoes.size
+    const intervalo = base && quantidade >= 20 ? Math.max(base, 5000) : base
     if (!intervalo) {
       for (const s of this.sessoes.values()) s.info.miniatura = undefined
       return
     }
     this.timerMiniatura = setTimeout(async () => {
       if (!this.pausado) {
-        const alvos = [...this.sessoes.values()].filter((s) => s.info.status === 'ok' && s.browser?.connected)
-        // Captura de tela consome GPU: limitar a concorrência.
-        for (let i = 0; i < alvos.length; i += 4) {
-          await Promise.all(alvos.slice(i, i + 4).map(async (s) => {
+        const todos = [...this.sessoes.values()].filter((s) => s.info.status === 'ok' && s.browser?.connected)
+        // Acima de 20 perfis, atualizar no máximo 6 miniaturas por rodada.
+        // As demais continuam visíveis com a última imagem, evitando picos de GPU.
+        const qtd = todos.length >= 20 ? Math.min(6, todos.length) : todos.length
+        const alvos = todos.length ? Array.from({ length: qtd }, (_, i) => todos[(this.indiceMiniatura + i) % todos.length]) : []
+        if (todos.length) this.indiceMiniatura = (this.indiceMiniatura + qtd) % todos.length
+        for (let i = 0; i < alvos.length; i += 3) {
+          await Promise.all(alvos.slice(i, i + 3).map(async (s) => {
             try {
               const p = await paginaPrincipal(s.browser!)
               const img = await p.screenshot({ type: 'jpeg', quality: 35, encoding: 'base64', optimizeForSpeed: true })
@@ -888,6 +895,28 @@ export class Motor extends EventEmitter {
       }
       this.agendarMiniaturas()
     }, intervalo)
+  }
+
+  async verificarAgora(slot: number) {
+    const s = this.sessoes.get(slot)
+    if (!s?.browser?.connected) throw new Error('O navegador não está conectado')
+    await this.verificarSite(s)
+    this.avisarMudanca()
+    return { reproducao: s.info.reproducao, detalhe: s.info.reproducaoDetalhe, recuperacao: s.info.recuperacao }
+  }
+
+  retomarDiagnostico(slot: number) {
+    const s = this.sessoes.get(slot)
+    if (!s) throw new Error('Navegador não encontrado')
+    s.info.recuperacao = 'analisando'
+    s.info.tentativasRecuperacao = 0
+    s.info.proximaRecuperacaoEm = undefined
+    s.recuperacaoBloqueadaAte = undefined
+    s.semAvancoDesde = undefined
+    s.leiturasSemAvanco = 0
+    s.amostraMidia = undefined
+    this.registrar(s, 'video', 'Monitoramento reiniciado manualmente')
+    this.avisarMudanca()
   }
 
   async miniaturaGrande(slot: number): Promise<string | undefined> {
