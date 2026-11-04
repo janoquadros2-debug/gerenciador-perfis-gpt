@@ -27,6 +27,10 @@ interface Sessao {
   amostraMidia?: AmostraMidia
   amostraEm?: number
   semAvancoDesde?: number // quando o tempo da mídia deixou de avançar
+  recuperacaoEmAndamento?: boolean
+  recuperacaoBloqueadaAte?: number
+  leiturasSemAvanco?: number
+  estavelDesde?: number
 }
 
 interface ItemFila {
@@ -746,16 +750,28 @@ export class Motor extends EventEmitter {
     const agora = Date.now()
     const anteriorStatus = s.info.reproducao
     const avancou = !!(anterior?.encontrado && atual.encontrado && atual.tempo > anterior.tempo + 0.3)
+    const bloqueio = atual.anuncioProvavel || atual.avisoCookies || atual.pausado || atual.encerrado
 
     s.info.avisoCookies = atual.avisoCookies
     s.info.anuncioProvavel = atual.anuncioProvavel
     s.info.reproducaoEm = agora
 
-    if (avancou || !atual.encontrado || atual.pausado || atual.encerrado) {
+    if (avancou || !atual.encontrado || bloqueio) {
       s.semAvancoDesde = undefined
-    } else if (!s.semAvancoDesde) {
-      s.semAvancoDesde = agora
+      s.leiturasSemAvanco = 0
+    } else {
+      s.leiturasSemAvanco = (s.leiturasSemAvanco ?? 0) + 1
+      if (!s.semAvancoDesde) s.semAvancoDesde = agora
     }
+    if (avancou) {
+      if (!s.estavelDesde) s.estavelDesde = agora
+      if (agora - s.estavelDesde > 60000) {
+        s.info.tentativasRecuperacao = 0
+        s.info.recuperacao = 'normal'
+        s.info.proximaRecuperacaoEm = undefined
+        s.recuperacaoBloqueadaAte = undefined
+      }
+    } else s.estavelDesde = undefined
     const semAvancoHa = s.semAvancoDesde ? agora - s.semAvancoDesde : 0
 
     if (atual.erro) {
@@ -791,6 +807,58 @@ export class Motor extends EventEmitter {
     }
     s.amostraMidia = atual
     s.amostraEm = agora
+
+    // Apenas buffering prolongado e confirmado; um player pausado, um anúncio
+    // ou ausência de vídeo nunca dispara recuperação automática.
+    if (store.config.recuperarTravamento && store.config.diagnosticoReproducao !== false &&
+        s.info.status === 'ok' && !this.pausado && !s.fechando && !bloqueio &&
+        atual.encontrado && !atual.erro && (atual.esperando || atual.pronto < 2) &&
+        semAvancoHa >= 45000 && (s.leiturasSemAvanco ?? 0) >= 3) {
+      void this.recuperarCarregamento(s)
+    }
+  }
+
+  private async recuperarCarregamento(s: Sessao) {
+    if (s.recuperacaoEmAndamento || s.info.recuperacao === 'intervencao') return
+    if (this.sessoes.get(s.info.slot) !== s || !s.browser?.connected) return
+    const agora = Date.now()
+    if (s.recuperacaoBloqueadaAte && agora < s.recuperacaoBloqueadaAte) {
+      s.info.proximaRecuperacaoEm = s.recuperacaoBloqueadaAte
+      s.info.recuperacao = 'analisando'
+      return
+    }
+    const tentativas = s.info.tentativasRecuperacao ?? 0
+    if (tentativas >= 2) {
+      s.info.recuperacao = 'intervencao'
+      s.info.proximaRecuperacaoEm = undefined
+      const motivo = 'O player continua carregando após duas atualizações de página. Verifique o navegador, o proxy e a transmissão.'
+      s.info.reproducaoDetalhe = motivo
+      this.registrar(s, 'erro', motivo)
+      logAviso(`Navegador #${s.info.slot}`, motivo)
+      this.avisarMudanca()
+      return
+    }
+    s.recuperacaoEmAndamento = true
+    s.info.recuperacao = 'tentando'
+    s.info.tentativasRecuperacao = tentativas + 1
+    s.info.proximaRecuperacaoEm = undefined
+    const motivo = `Player sem dados por pelo menos 45 s; atualizando a página (tentativa ${tentativas + 1}/2)`
+    this.registrar(s, 'video', motivo)
+    logAviso(`Navegador #${s.info.slot}`, motivo)
+    this.avisarMudanca()
+    try {
+      await this.f5(s.info.slot)
+    } finally {
+      // Mesmo se o F5 falhar, aguardar antes de tentar de novo.
+      s.recuperacaoEmAndamento = false
+      s.recuperacaoBloqueadaAte = Date.now() + 60000
+      s.info.proximaRecuperacaoEm = s.recuperacaoBloqueadaAte
+      s.info.recuperacao = 'analisando'
+      s.amostraMidia = undefined
+      s.semAvancoDesde = undefined
+      s.leiturasSemAvanco = 0
+      this.avisarMudanca()
+    }
   }
 
   agendarMiniaturas() {
