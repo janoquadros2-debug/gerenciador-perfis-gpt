@@ -8,7 +8,7 @@ import { manterAtivas } from './ativas'
 import { lerAmostraMidia, type AmostraMidia } from './diagnostico'
 import * as dolphin from './dolphin'
 import { retanguloDoSlot, capacidadeGrade } from './janelas'
-import { ProxiesEsgotados, proximoProxy, proxyParaTexto, testarProxy } from './proxies'
+import { ProxiesEsgotados, proximoProxy, proxyParaTexto, testarProxy, lerLinha } from './proxies'
 import { logErro, logInfo, logOk, logAviso } from './log'
 import { limparRam, usoRam } from './ram'
 import { store } from './store'
@@ -620,8 +620,14 @@ export class Motor extends EventEmitter {
   async diagnosticarProxy(slot: number) {
     const s = this.sessoes.get(slot)
     if (!s) throw new Error('Perfil não está aberto')
-    const proxy = store.proxies.find((p) => proxyParaTexto(p) === s.info.proxy)
-    if (!proxy) throw new Error('O proxy deste navegador não está na lista com credenciais disponíveis para teste')
+    const endereco = s.info.proxy ?? s.perfil.proxyTexto
+    if (!endereco || endereco === 'Sem proxy') throw new Error('Este navegador não tem proxy configurado')
+    // O Dolphin frequentemente retorna o tipo HTTP no lugar de HTTPS e não devolve
+    // as credenciais; a comparação literal com a lista salva gerava falso erro.
+    const lido = lerLinha(endereco, 'http')
+    if (!lido) throw new Error('O endereço do proxy do navegador é inválido')
+    const proxy = store.proxies.find((p) => p.host.toLowerCase() === lido.host.toLowerCase() && p.porta === lido.porta)
+      ?? lido
     const resultado = await testarProxy(proxy, 12000)
     s.info.diagnosticoProxy = resultado
     this.registrar(s, 'proxy', resultado.ok ? `Teste de proxy OK (${resultado.ms ?? '?'} ms)` : `Teste de proxy: ${resultado.erro ?? 'falha'}`)
