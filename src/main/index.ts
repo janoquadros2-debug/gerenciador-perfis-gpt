@@ -160,7 +160,18 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
       const proxy = o.modoProxy === 'lista' && lista.length ? lista[i % lista.length] : unico
       const existente = existentes.get(nome)
       if (existente) {
-        // já existe: não cria de novo, mas abre se a opção estiver ligada
+        // Perfis com nomes existentes reutilizam o cadastro, MAS precisam receber o site
+        // solicitado nesta criação. Antes abriam o URL antigo (geralmente o Google).
+        if (o.site?.trim()) {
+          const site = o.site.trim()
+          store.setSite(existente.id, site)
+          existente.site = site
+        }
+        if (o.site2?.trim()) {
+          const site2 = o.site2.trim()
+          store.setSite2(existente.id, site2)
+          existente.site2 = site2
+        }
         if (o.abrirAoCriar) motor.abrir([existente], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies })
         pulados++
         prog.feitos = i + 1
