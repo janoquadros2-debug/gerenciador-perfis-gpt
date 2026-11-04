@@ -21,6 +21,8 @@ export interface ResultadoTesteProxy {
   ms?: number
   erro?: string
   quando: number
+  categoria?: 'ok' | 'autenticacao' | 'dns' | 'tempo' | 'conexao' | 'http' | 'resposta'
+  httpStatus?: number
 }
 
 export type ModoDistribuicao = 'sequencia' | 'sorteado' | 'sem-repetir' | 'sorteado-sem-repetir'
@@ -37,6 +39,12 @@ export interface Perfil {
 
 export type StatusNavegador = 'abrindo' | 'ok' | 'erro' | 'fechado'
 export type EstadoReproducao = 'analisando' | 'reproduzindo' | 'pausado' | 'carregando' | 'encerrado' | 'sem-video' | 'inconclusivo' | 'erro'
+
+export interface HistoricoPerfil {
+  quando: number
+  categoria: 'abertura' | 'site' | 'video' | 'cookies' | 'proxy' | 'temporizador' | 'erro'
+  texto: string
+}
 
 export interface Navegador {
   slot: number // número do navegador (#1, #2, ...)
@@ -63,6 +71,8 @@ export interface Navegador {
   reproducaoEm?: number // instante da última medição
   reproducaoDetalhe?: string
   avisoCookies?: boolean
+  diagnosticoProxy?: ResultadoTesteProxy
+  historico?: HistoricoPerfil[]
 }
 
 export interface ConfigJanelas {
@@ -74,6 +84,7 @@ export interface ConfigJanelas {
   ordem: 'blocos-3x2' | 'linha' | 'coluna'
   espaco: number
   monitores: number[] // ids dos monitores usados, na ordem
+  grupoVisivel?: number // grupo de janelas em evidência
 }
 
 export interface Configuracoes {
@@ -119,6 +130,9 @@ export interface EstadoMotor {
   ram: { usada: number; total: number; porcentagem: number }
   avisos: string[]
   proxiesEsgotados: boolean
+  capacidadePorGrupo?: number
+  totalGrupos?: number
+  grupoVisivel?: number
 }
 
 export interface Monitor {
