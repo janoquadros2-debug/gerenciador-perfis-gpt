@@ -90,7 +90,13 @@ export async function testarConexao(): Promise<{ nuvem: boolean; local: boolean;
 }
 
 function paraPerfil(p: any): Perfil {
-  const proxy = p.proxy && p.proxy.host ? `${p.proxy.type ?? 'http'}://${p.proxy.host}:${p.proxy.port}` : undefined
+  // Algumas respostas do Dolphin omitem a porta do proxy ou usam uma chave diferente.
+  // Nunca exibir ":undefined" como se fosse um endereço válido.
+  const bruto = p.proxy
+  const host = typeof bruto?.host === 'string' ? bruto.host.trim() : ''
+  const porta = Number(bruto?.port ?? bruto?.proxyPort ?? bruto?.proxy_port ?? bruto?.proxy_port_number)
+  const portaValida = Number.isInteger(porta) && porta >= 1 && porta <= 65535
+  const proxy = host ? `${bruto.type ?? 'http'}://${host}${portaValida ? ':' + porta : ''}` : undefined
   return {
     id: Number(p.id),
     nome: String(p.name ?? `Perfil ${p.id}`),
