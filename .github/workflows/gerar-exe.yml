@@ -40,6 +40,10 @@ jobs:
       - run: npm install --no-audit --no-fund
         if: steps.versao.outputs.existe == 'nao'
 
+      - name: Verificar tipos TypeScript
+        if: steps.versao.outputs.existe == 'nao'
+        run: npm run typecheck
+
       - name: Criar ícone GPT independente
         if: steps.versao.outputs.existe == 'nao'
         run: |
