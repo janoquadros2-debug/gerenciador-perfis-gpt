@@ -2,10 +2,12 @@
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ConfigRede, Configuracoes, FluxoIA, OpcoesCriacaoMassa, Proxy, Sugestao } from '../shared/types'
+import type { ConfigRede, Configuracoes, FluxoIA, OpcoesCriacaoMassa, Proxy, Sugestao, RegistroOperacao, RecursosExtras } from '../shared/types'
 
 interface Dados {
   config: Configuracoes
+  operacoes?: RegistroOperacao[]
+  historicosPerfis?: Record<number, import('../shared/types').HistoricoPerfil[]>
   proxies: Proxy[]
   sugestoes: Sugestao[]
   sitesPorPerfil: Record<number, string>
@@ -29,7 +31,21 @@ export const MODELO_PADRAO: OpcoesCriacaoMassa = {
   sistema: 'windows'
 }
 
+export const EXTRAS_PADRAO: RecursosExtras = {
+  apiCursor: false,
+  retryLeituras: false,
+  diarioOperacoes: false,
+  historicoPersistente: false,
+  categorizarFalhas: false,
+  detectarIpsRepetidos: false,
+  historicoTestesProxy: false,
+  validadeProxyInformativa: false,
+  preservarVideoNoF5: false,
+  validarAbertura: false
+}
+
 export const CONFIG_PADRAO: Configuracoes = {
+  recursosExtras: { ...EXTRAS_PADRAO },
   tokenDolphin: '',
   portaLocalDolphin: 3001,
   siteInicial: 'https://www.google.com',
@@ -95,7 +111,7 @@ export function carregar(): void {
     dados = {
       ...dados,
       ...lido,
-      config: { ...CONFIG_PADRAO, ...lido.config, janelas: { ...CONFIG_PADRAO.janelas, ...(lido.config?.janelas ?? {}) } }
+      config: { ...CONFIG_PADRAO, ...lido.config, recursosExtras: { ...EXTRAS_PADRAO, ...(lido.config?.recursosExtras ?? {}) }, janelas: { ...CONFIG_PADRAO.janelas, ...(lido.config?.janelas ?? {}) } }
     }
     if (!dados.config.repoAtualizacao) dados.config.repoAtualizacao = CONFIG_PADRAO.repoAtualizacao
   } catch {
@@ -128,11 +144,38 @@ export function salvar(): void {
 }
 
 export const store = {
+  get operacoes(): RegistroOperacao[] {
+    return [...(dados.operacoes ?? [])]
+  },
+  registrarOperacao(op: RegistroOperacao) {
+    if (!dados.config.recursosExtras?.diarioOperacoes) return
+    dados.operacoes ??= []
+    const i = dados.operacoes.findIndex((x) => x.id === op.id)
+    if (i >= 0) dados.operacoes[i] = op
+    else dados.operacoes.push(op)
+    if (dados.operacoes.length > 300) dados.operacoes.splice(0, dados.operacoes.length - 300)
+    salvar()
+  },
+  reconhecerOperacoes() {
+    const pendentes = (dados.operacoes ?? []).filter((x) => x.estado === 'pendente')
+    for (const op of pendentes) { op.estado = 'revisada'; op.atualizadoEm = Date.now(); op.detalhe = 'Operação interrompida; conferir estado real no Dolphin antes de repetir.' }
+    if (pendentes.length) salvar()
+    return pendentes.length
+  },
+  get historicosPerfis() { return dados.historicosPerfis ?? {} },
+  salvarHistoricoPerfil(id: number, lista: import('../shared/types').HistoricoPerfil[]) {
+    if (!dados.config.recursosExtras?.historicoPersistente) return
+    dados.historicosPerfis ??= {}
+    dados.historicosPerfis[id] = lista.slice(-60)
+    const ids = Object.keys(dados.historicosPerfis)
+    if (ids.length > 200) delete dados.historicosPerfis[Number(ids[0])]
+    salvar()
+  },
   get config() {
     return dados.config
   },
   setConfig(parcial: Partial<Configuracoes>) {
-    dados.config = { ...dados.config, ...parcial }
+    dados.config = { ...dados.config, ...parcial, recursosExtras: parcial.recursosExtras ? { ...EXTRAS_PADRAO, ...dados.config.recursosExtras, ...parcial.recursosExtras } : dados.config.recursosExtras }
     salvar()
     return dados.config
   },
