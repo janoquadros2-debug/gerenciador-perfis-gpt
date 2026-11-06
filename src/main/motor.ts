@@ -26,6 +26,8 @@ interface Sessao {
   cookies?: ModoCookies
   tempoAberto?: TempoAberto
   aoAcabar?: 'fechar' | 'reabrir'
+  tempoFechadoMinutos?: number
+  f5EmAndamento?: boolean
   fechando?: boolean
   amostraMidia?: AmostraMidia
   amostraEm?: number
@@ -51,6 +53,14 @@ interface ItemFila {
   cookies?: ModoCookies // aviso de cookies: aceitar/recusar sozinho
   tempoAberto?: TempoAberto // para sortear um tempo novo ao reabrir
   aoAcabar?: 'fechar' | 'reabrir'
+  tempoFechadoMinutos?: number
+}
+
+interface CicloEmEspera {
+  item: ItemFila
+  reabreEm: number
+  tempoFechadoMinutos: number
+  timer?: NodeJS.Timeout
 }
 
 const LIMITE_ABERTURA = 4
@@ -60,6 +70,7 @@ export class Motor extends EventEmitter {
   perfis: Perfil[] = []
   private sessoes = new Map<number, Sessao>()
   private fila: ItemFila[] = []
+  private ciclosEmEspera = new Map<number, CicloEmEspera>()
   private abrindoAgora = 0
   private proximaAbertura = 0
   private timerFila?: NodeJS.Timeout
@@ -109,6 +120,7 @@ export class Motor extends EventEmitter {
       pausado: this.pausado,
       navegadores: navegadorLista,
       fila: this.fila.length,
+      ciclosEmEspera: [...this.ciclosEmEspera].map(([slot, c]) => ({ slot, perfilId: c.item.perfil.id, perfilNome: c.item.perfil.nome, reabreEm: c.reabreEm, tempoFechadoMinutos: c.tempoFechadoMinutos })),
       ram: this.ram(),
       avisos: this.avisos.slice(-5),
       proxiesEsgotados: this.proxiesEsgotados,
@@ -149,13 +161,25 @@ export class Motor extends EventEmitter {
   private verificarTempos() {
     if (this.pausado) return
     const agora = Date.now()
-    // F5 automático (fixo ou aleatório): recarrega e já sorteia o próximo
+    // O agendamento do F5 não depende do status da página após erro HTTP/timeout.
     for (const s of this.sessoes.values()) {
-      if (!s.recarregar || !s.info.proximoF5 || s.info.proximoF5 > agora || s.info.status !== 'ok') continue
-      s.info.proximoF5 = agora + (sortearDuracao(s.recarregar) ?? 60_000)
-      logInfo(`Navegador #${s.info.slot}`, `F5 automático em ${s.perfil.nome} (próximo às ${new Date(s.info.proximoF5).toLocaleTimeString('pt-BR')}).`)
-      this.f5(s.info.slot).catch(() => undefined)
-      this.avisarMudanca()
+      if (!s.recarregar || !s.info.proximoF5 || s.info.proximoF5 > agora ||
+          s.f5EmAndamento || s.fechando || s.info.status === 'abrindo' || !s.browser?.connected) continue
+      s.f5EmAndamento = true
+      s.info.proximoF5 = undefined
+      void this.f5(s.info.slot).catch((e) => {
+        logAviso(`Navegador #${s.info.slot}`, `Falha no F5 agendado: ${traduzirErro(e)}`)
+      }).finally(() => {
+        s.f5EmAndamento = false
+        if (this.sessoes.get(s.info.slot) !== s || !s.recarregar || s.fechando) return
+        const intervalo = sortearDuracao(s.recarregar)
+        if (intervalo) {
+          s.info.proximoF5 = Date.now() + intervalo
+          logInfo(`Navegador #${s.info.slot}`,
+            `F5 concluído; próximo intervalo sorteado: ${Math.ceil(intervalo / 1000)} s (às ${new Date(s.info.proximoF5).toLocaleTimeString('pt-BR')}).`)
+        }
+        this.avisarMudanca()
+      })
     }
     // tempo aberto acabou: fecha (e, se escolhido, abre de novo com um tempo novo)
     const vencidos = [...this.sessoes.values()].filter((s) => s.info.fechaEm && s.info.fechaEm <= agora && !s.fechando && s.info.status !== 'abrindo')
@@ -177,9 +201,9 @@ export class Motor extends EventEmitter {
   // ---------- abrir ----------
   abrir(
     perfis: Perfil[],
-    opcoes: { manterProxy?: boolean; duracaoMs?: number; recarregar?: TempoAberto; cookies?: ModoCookies; tempoAberto?: TempoAberto; aoAcabar?: 'fechar' | 'reabrir' } = {}
+    opcoes: { manterProxy?: boolean; duracaoMs?: number; recarregar?: TempoAberto; cookies?: ModoCookies; tempoAberto?: TempoAberto; aoAcabar?: 'fechar' | 'reabrir'; tempoFechadoMinutos?: number } = {}
   ) {
-    const ocupados = new Set([...this.sessoes.values()].map((s) => s.perfil.id).concat(this.fila.map((f) => f.perfil.id)))
+    const ocupados = new Set([...this.sessoes.values()].map((s) => s.perfil.id).concat(this.fila.map((f) => f.perfil.id), [...this.ciclosEmEspera.values()].map((c) => c.item.perfil.id)))
     const recarregar = opcoes.recarregar && opcoes.recarregar.modo !== 'sem-limite' ? opcoes.recarregar : undefined
     for (const p of perfis) if (!ocupados.has(p.id)) this.fila.push({
           perfil: p,
@@ -189,7 +213,8 @@ export class Motor extends EventEmitter {
           recarregar,
           cookies: opcoes.cookies,
           tempoAberto: opcoes.tempoAberto && opcoes.tempoAberto.modo !== 'sem-limite' ? opcoes.tempoAberto : undefined,
-          aoAcabar: opcoes.aoAcabar
+          aoAcabar: opcoes.aoAcabar,
+          tempoFechadoMinutos: opcoes.tempoFechadoMinutos
         })
     this.avisarMudanca()
     this.processarFila()
@@ -204,7 +229,7 @@ export class Motor extends EventEmitter {
   }
 
   private proximoSlotLivre(): number {
-    const usados = new Set([...this.sessoes.keys()].concat(this.fila.map((f) => f.slot ?? 0)))
+    const usados = new Set([...this.sessoes.keys(), ...this.ciclosEmEspera.keys(), ...this.fila.map((f) => f.slot ?? 0)])
     let s = 1
     while (usados.has(s)) s++
     return s
@@ -273,6 +298,7 @@ export class Motor extends EventEmitter {
       cookies: item.cookies ?? anterior?.cookies ?? cfg.cookiesPadrao ?? 'recusar',
       tempoAberto: item.tempoAberto ?? anterior?.tempoAberto,
       aoAcabar: item.aoAcabar ?? anterior?.aoAcabar,
+      tempoFechadoMinutos: item.tempoFechadoMinutos ?? anterior?.tempoFechadoMinutos,
       info: {
         slot,
         perfilId: item.perfil.id,
@@ -283,7 +309,8 @@ export class Motor extends EventEmitter {
         quedas: anterior?.perfil.id === item.perfil.id ? anterior.info.quedas : 0,
         abertoEm: Date.now(),
         fechaEm: item.fechaEm,
-        reabreAoAcabar: (item.aoAcabar ?? anterior?.aoAcabar) === 'reabrir' && !!(item.tempoAberto ?? anterior?.tempoAberto)
+        reabreAoAcabar: (item.aoAcabar ?? anterior?.aoAcabar) === 'reabrir' && !!(item.tempoAberto ?? anterior?.tempoAberto),
+        tempoFechadoMinutos: item.tempoFechadoMinutos ?? anterior?.tempoFechadoMinutos
       }
     }
     sessao.info.historico = [...(this.historicos.get(item.perfil.id) ?? (cfg.recursosExtras?.historicoPersistente ? store.historicosPerfis[item.perfil.id] ?? [] : []))]
@@ -427,7 +454,7 @@ export class Motor extends EventEmitter {
       sessao.info.status = 'abrindo'
       sessao.info.erro = `Caiu, reabrindo (${sessao.info.quedas}/${cfg.tentativasReabrir})`
       this.fila.unshift({ perfil: sessao.perfil, slot, proxy: undefined, fechaEm: sessao.info.fechaEm,
-        recarregar: sessao.recarregar, tempoAberto: sessao.tempoAberto, aoAcabar: sessao.aoAcabar, cookies: sessao.cookies })
+        recarregar: sessao.recarregar, tempoAberto: sessao.tempoAberto, aoAcabar: sessao.aoAcabar, cookies: sessao.cookies, tempoFechadoMinutos: sessao.tempoFechadoMinutos })
       this.processarFila()
     } else {
       sessao.info.status = 'erro'
@@ -443,7 +470,7 @@ export class Motor extends EventEmitter {
     if (!s) return
     if (!s.browser?.connected) {
       this.fila.unshift({ perfil: s.perfil, slot, fechaEm: s.info.fechaEm,
-        recarregar: s.recarregar, tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar, cookies: s.cookies })
+        recarregar: s.recarregar, tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar, cookies: s.cookies, tempoFechadoMinutos: s.tempoFechadoMinutos })
       this.processarFila()
       return
     }
@@ -471,7 +498,8 @@ export class Motor extends EventEmitter {
     slots: number[],
     tipo: 'f5' | 'fechamento',
     tempo: TempoAberto,
-    aoAcabar: 'fechar' | 'reabrir' = 'fechar'
+    aoAcabar: 'fechar' | 'reabrir' = 'fechar',
+    tempoFechadoMinutos?: number
   ): { alterados: number; ignorados: number } {
     if (!Array.isArray(slots) || !['f5', 'fechamento'].includes(tipo)) throw new Error('Seleção inválida')
     if (!tempo || !['sem-limite', 'fixo', 'aleatorio'].includes(tempo.modo)) throw new Error('Modo de tempo inválido')
@@ -479,6 +507,7 @@ export class Motor extends EventEmitter {
     if (valores.some((v) => !Number.isFinite(v) || v < 0 || v > 10080)) throw new Error('Informe tempos válidos de até 7 dias')
     if (tempo.modo === 'fixo' && tempo.minutos <= 0) throw new Error('Tempo fixo deve ser maior que zero')
     if (tempo.modo === 'aleatorio' && (tempo.de <= 0 || tempo.ate <= 0 || tempo.de > tempo.ate)) throw new Error('Intervalo aleatório inválido')
+    if (tempoFechadoMinutos !== undefined && (!Number.isFinite(tempoFechadoMinutos) || tempoFechadoMinutos < 0 || tempoFechadoMinutos > 10080)) throw new Error('Tempo fechado inválido')
     const agora = Date.now()
     let alterados = 0
     for (const slot of new Set(slots)) {
@@ -493,6 +522,8 @@ export class Motor extends EventEmitter {
         s.aoAcabar = ativo ? aoAcabar : undefined
         s.info.fechaEm = ativo ? agora + (sortearDuracao(tempo) ?? 0) : undefined
         s.info.reabreAoAcabar = ativo && aoAcabar === 'reabrir'
+        if (tempoFechadoMinutos !== undefined) s.tempoFechadoMinutos = tempoFechadoMinutos
+        s.info.tempoFechadoMinutos = s.tempoFechadoMinutos
       }
       alterados++
     }
@@ -513,6 +544,7 @@ export class Motor extends EventEmitter {
   }
 
   async encerrar(slots: number[], manterVaga = false) {
+    for (const slot of slots) this.cancelarEsperaInterna(slot)
     await Promise.all(
       slots.map(async (slot) => {
         const s = this.sessoes.get(slot)
@@ -558,14 +590,94 @@ export class Motor extends EventEmitter {
     logInfo(`Navegador #${slot}`, `${s.perfil.nome}: o tempo aberto acabou${reabrir ? ', fechando e abrindo de novo' : ', fechando'}.`)
     await this.encerrar([slot])
     if (!reabrir || this.pausado) return
-    // abre de novo no mesmo lugar, com o mesmo proxy, um tempo novo e as mesmas opções
-    await new Promise((ok) => setTimeout(ok, 3000))
-    if (this.sessoes.has(slot)) return // você já pôs outro navegador nesse lugar
-    this.fila.unshift({ perfil: s.perfil, slot, manterProxy: true, duracaoMs: sortearDuracao(s.tempoAberto), tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar, recarregar: s.recarregar, cookies: s.cookies })
+    // Opcional: espera configurável; os antigos 3 segundos permanecem por padrão.
+    const pausa = Number(s.tempoFechadoMinutos) > 0 ? Number(s.tempoFechadoMinutos) : 0
+    const urlAtual = s.info.url
+    const perfil = urlAtual && /^https?:\/\//i.test(urlAtual) ? { ...s.perfil, site: urlAtual } : s.perfil
+    this.agendarReabertura({
+      perfil, slot, manterProxy: true, duracaoMs: sortearDuracao(s.tempoAberto),
+      tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar,
+      recarregar: s.recarregar, cookies: s.cookies, tempoFechadoMinutos: s.tempoFechadoMinutos
+    }, pausa ? pausa * 60_000 : 3000)
+  }
+
+  private agendarReabertura(item: ItemFila, esperaMs: number) {
+    const slot = item.slot!
+    this.cancelarEsperaInterna(slot)
+    const ciclo: CicloEmEspera = { item, reabreEm: Date.now() + esperaMs, tempoFechadoMinutos: item.tempoFechadoMinutos ?? 0 }
+    this.ciclosEmEspera.set(slot, ciclo)
+    const verificar = () => {
+      if (this.ciclosEmEspera.get(slot) !== ciclo) return
+      if (this.pausado) { ciclo.timer = setTimeout(verificar, 2000); return }
+      const falta = ciclo.reabreEm - Date.now()
+      if (falta > 0) { ciclo.timer = setTimeout(verificar, Math.min(falta, 30000)); return }
+      this.ciclosEmEspera.delete(slot)
+      if (this.sessoes.has(slot) || this.fila.some((f) => f.slot === slot)) {
+        this.aviso(`Não reabri ${item.perfil.nome}: posição #${slot} ocupada.`)
+        return
+      }
+      logInfo(`Navegador #${slot}`, 'Tempo fechado encerrado; reabrindo o mesmo perfil.')
+      this.fila.unshift(item)
+      this.processarFila()
+      this.avisarMudanca()
+    }
+    ciclo.timer = setTimeout(verificar, Math.min(esperaMs, 30000))
+    this.avisarMudanca()
+  }
+
+  private cancelarEsperaInterna(slot: number): boolean {
+    const ciclo = this.ciclosEmEspera.get(slot)
+    if (!ciclo) return false
+    clearTimeout(ciclo.timer)
+    this.ciclosEmEspera.delete(slot)
+    return true
+  }
+
+  cancelarCiclo(slot: number) {
+    if (this.cancelarEsperaInterna(slot)) {
+      logInfo(`Navegador #${slot}`, 'Reabertura programada cancelada.')
+      this.avisarMudanca()
+      return
+    }
+    const s = this.sessoes.get(slot)
+    if (!s) return
+    s.tempoAberto = undefined
+    s.aoAcabar = undefined
+    s.info.fechaEm = undefined
+    s.info.reabreAoAcabar = false
+    this.registrar(s, 'temporizador', 'Ciclo fechar/reabrir cancelado')
+    this.avisarMudanca()
+  }
+
+  alterarEsperaCiclo(slot: number, minutos: number) {
+    if (!Number.isFinite(minutos) || minutos < 0.1 || minutos > 10080) throw new Error('Informe entre 0,1 e 10080 minutos.')
+    const ciclo = this.ciclosEmEspera.get(slot)
+    if (ciclo) {
+      ciclo.item.tempoFechadoMinutos = minutos
+      this.agendarReabertura(ciclo.item, minutos * 60_000)
+      return
+    }
+    const s = this.sessoes.get(slot)
+    if (!s) throw new Error('Perfil não encontrado.')
+    s.tempoFechadoMinutos = minutos
+    s.info.tempoFechadoMinutos = minutos
+    this.registrar(s, 'temporizador', `Tempo fechado: ${minutos} min`)
+    this.avisarMudanca()
+  }
+
+  reabrirCicloAgora(slot: number) {
+    const ciclo = this.ciclosEmEspera.get(slot)
+    if (!ciclo) return
+    const item = ciclo.item
+    this.cancelarEsperaInterna(slot)
+    if (this.sessoes.has(slot) || this.fila.some((f) => f.slot === slot)) throw new Error('Posição ocupada.')
+    this.fila.unshift(item)
     this.processarFila()
+    this.avisarMudanca()
   }
 
   async encerrarTodos() {
+    for (const slot of this.ciclosEmEspera.keys()) this.cancelarEsperaInterna(slot)
     this.fila = []
     await this.encerrar([...this.sessoes.keys()])
   }
