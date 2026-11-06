@@ -121,6 +121,8 @@ export function Proxies({ esgotados }: { esgotados: boolean }) {
                 <th>Local</th>
                 <th>Velocidade</th>
                 <th>Usos</th>
+                {cfg.recursosExtras?.historicoTestesProxy && <th>Histórico</th>}
+                {cfg.recursosExtras?.validadeProxyInformativa && <th>Primeiro uso</th>}
                 <th />
               </tr>
             </thead>
@@ -142,6 +144,8 @@ export function Proxies({ esgotados }: { esgotados: boolean }) {
                     <td>{t?.ok ? [t.cidade, t.pais].filter(Boolean).join(', ') : '—'}</td>
                     <td>{t?.ms ? `${t.ms} ms` : '—'}</td>
                     <td><strong>{p.usos}</strong></td>
+                    {cfg.recursosExtras?.historicoTestesProxy && <td title={(p.historicoTestes ?? []).slice(-5).map(x=>`${new Date(x.quando).toLocaleString('pt-BR')}: ${x.ok ? 'OK' : x.erro ?? 'Falha'}`).join(' | ')}>{p.historicoTestes?.length ?? 0} registros</td>}
+                    {cfg.recursosExtras?.validadeProxyInformativa && <td>{p.primeiroUsoEm ? new Date(p.primeiroUsoEm).toLocaleString('pt-BR') : 'Não registrado'}</td>}
                     <td style={{ textAlign: 'right' }}>
                       <span className="linha" style={{ gap: 6, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
                         <button className="btn pequeno" onClick={() => testar([p.id])}>Testar</button>
