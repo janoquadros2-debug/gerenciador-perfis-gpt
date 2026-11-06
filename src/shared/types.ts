@@ -11,6 +11,8 @@ export interface Proxy {
   senha?: string
   usos: number // contador de uso
   ultimoTeste?: ResultadoTesteProxy
+  historicoTestes?: ResultadoTesteProxy[] // histórico opcional, limitado a 20 resultados
+  primeiroUsoEm?: number // referência informativa, não expira nem troca proxies automaticamente
 }
 
 export interface ResultadoTesteProxy {
@@ -78,6 +80,8 @@ export interface Navegador {
   proximaRecuperacaoEm?: number
   diagnosticoProxy?:  ResultadoTesteProxy
   historico?: HistoricoPerfil[]
+  erroCategoria?: 'dolphin' | 'proxy' | 'rede' | 'pagina' | 'autenticacao' | 'desconhecido'
+  ipRepetido?: boolean
 }
 
 export interface ConfigJanelas {
@@ -92,7 +96,33 @@ export interface ConfigJanelas {
   grupoVisivel?: number // grupo de janelas em evidência
 }
 
+export interface RecursosExtras {
+  apiCursor: boolean
+  retryLeituras: boolean
+  diarioOperacoes: boolean
+  historicoPersistente: boolean
+  categorizarFalhas: boolean
+  detectarIpsRepetidos: boolean
+  historicoTestesProxy: boolean
+  validadeProxyInformativa: boolean
+  preservarVideoNoF5: boolean
+  validarAbertura: boolean
+}
+
+export interface RegistroOperacao {
+  id: string
+  tipo: 'abrir' | 'fechar' | 'criar'
+  estado: 'pendente' | 'concluida' | 'erro' | 'revisada'
+  perfilId?: number
+  perfilNome?: string
+  slot?: number
+  iniciadoEm: number
+  atualizadoEm: number
+  detalhe?: string
+}
+
 export interface Configuracoes {
+  recursosExtras?: RecursosExtras
   tokenDolphin: string
   portaLocalDolphin: number
   siteInicial: string
