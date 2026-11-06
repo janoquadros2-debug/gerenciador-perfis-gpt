@@ -1,5 +1,6 @@
 // O "motor": abre, acompanha, reabre, substitui e encerra os navegadores.
 import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import puppeteer, { type Browser, type Page } from 'puppeteer-core'
 import type { EstadoMotor, Navegador, Perfil, Proxy, TempoAberto, HistoricoPerfil } from '../shared/types'
 import { sortearDuracao } from '../shared/sorteio'
@@ -7,6 +8,7 @@ import { type ModoCookies, vigiarCookies } from './cookies'
 import { manterAtivas } from './ativas'
 import { lerAmostraMidia, type AmostraMidia } from './diagnostico'
 import { urlPlayerDeTeste } from './player-teste'
+import { categorizarFalha, ipsRepetidos } from './diagnostico-falhas'
 import * as dolphin from './dolphin'
 import { retanguloDoSlot, capacidadeGrade } from './janelas'
 import { ProxiesEsgotados, proximoProxy, proxyParaTexto, testarProxy, lerLinha } from './proxies'
@@ -35,6 +37,7 @@ interface Sessao {
   pausaDesde?: number
   leiturasPausado?: number
   alertaPausa?: boolean
+  operacaoAberturaId?: string
 }
 
 interface ItemFila {
@@ -99,9 +102,12 @@ export class Motor extends EventEmitter {
   }
 
   estado(): EstadoMotor {
+    const navegadorLista = [...this.sessoes.values()].map((s) => s.info).sort((a, b) => a.slot - b.slot)
+    if (store.config.recursosExtras?.detectarIpsRepetidos) ipsRepetidos(navegadorLista)
+    else for (const n of navegadorLista) n.ipRepetido = undefined
     return {
       pausado: this.pausado,
-      navegadores: [...this.sessoes.values()].map((s) => s.info).sort((a, b) => a.slot - b.slot),
+      navegadores: navegadorLista,
       fila: this.fila.length,
       ram: this.ram(),
       avisos: this.avisos.slice(-5),
@@ -115,13 +121,14 @@ export class Motor extends EventEmitter {
   private historicos = new Map<number, HistoricoPerfil[]>()
 
   private registrar(s: Sessao, categoria: HistoricoPerfil['categoria'], texto: string) {
-    const historico = this.historicos.get(s.perfil.id) ?? []
+    const historico = this.historicos.get(s.perfil.id) ?? (store.config.recursosExtras?.historicoPersistente ? (store.historicosPerfis[s.perfil.id] ?? []) : [])
     const anterior = historico[historico.length - 1]
     if (anterior?.texto === texto && Date.now() - anterior.quando < 30000) return
     historico.push({ quando: Date.now(), categoria, texto })
     if (historico.length > 60) historico.splice(0, historico.length - 60)
     this.historicos.set(s.perfil.id, historico)
     s.info.historico = [...historico]
+    store.salvarHistoricoPerfil(s.perfil.id, historico)
   }
 
   private avisarMudanca() {
@@ -279,9 +286,14 @@ export class Motor extends EventEmitter {
         reabreAoAcabar: (item.aoAcabar ?? anterior?.aoAcabar) === 'reabrir' && !!(item.tempoAberto ?? anterior?.tempoAberto)
       }
     }
-    sessao.info.historico = [...(this.historicos.get(item.perfil.id) ?? [])]
+    sessao.info.historico = [...(this.historicos.get(item.perfil.id) ?? (cfg.recursosExtras?.historicoPersistente ? store.historicosPerfis[item.perfil.id] ?? [] : []))]
     this.registrar(sessao, 'abertura', 'Iniciando navegador')
     this.sessoes.set(slot, sessao)
+    if (cfg.recursosExtras?.diarioOperacoes) {
+      sessao.operacaoAberturaId = randomUUID()
+      store.registrarOperacao({ id: sessao.operacaoAberturaId, tipo: 'abrir', estado: 'pendente',
+        perfilId: item.perfil.id, perfilNome: item.perfil.nome, slot, iniciadoEm: Date.now(), atualizadoEm: Date.now() })
+    }
     this.avisarMudanca()
     const quem = `Navegador #${slot}`
     logInfo(quem, `Abrindo ${item.perfil.nome}${anterior?.perfil.id === item.perfil.id ? ' de novo' : ''}…`)
@@ -361,6 +373,13 @@ export class Motor extends EventEmitter {
       // F5 automático: marca o primeiro
       if (sessao.recarregar) sessao.info.proximoF5 = Date.now() + (sortearDuracao(sessao.recarregar) ?? 0)
       sessao.info.status = 'ok'
+      if (cfg.recursosExtras?.validarAbertura && (!browser.connected || !sessao.info.siteOk))
+        throw new Error('Abertura sem confirmação de conexão e carregamento')
+      if (sessao.operacaoAberturaId) store.registrarOperacao({
+        id: sessao.operacaoAberturaId, tipo: 'abrir', estado: 'concluida',
+        perfilId: item.perfil.id, perfilNome: item.perfil.nome, slot,
+        iniciadoEm: sessao.info.abertoEm, atualizadoEm: Date.now(), detalhe: 'Navegador e página carregados'
+      })
       this.registrar(sessao, 'abertura', 'Navegador aberto e página carregada')
       sessao.info.erro = undefined
       logOk(
@@ -370,6 +389,12 @@ export class Motor extends EventEmitter {
           (sessao.info.fechaEm ? ` · fecha às ${new Date(sessao.info.fechaEm).toLocaleTimeString('pt-BR')}` : '')
       )
     } catch (e: any) {
+      if (sessao.operacaoAberturaId) store.registrarOperacao({
+        id: sessao.operacaoAberturaId, tipo: 'abrir', estado: 'erro', perfilId: item.perfil.id,
+        perfilNome: item.perfil.nome, slot, iniciadoEm: sessao.info.abertoEm,
+        atualizadoEm: Date.now(), detalhe: traduzirErro(e)
+      })
+      if (cfg.recursosExtras?.categorizarFalhas) sessao.info.erroCategoria = categorizarFalha(e)
       if (e instanceof ProxiesEsgotados) {
         this.proxiesEsgotados = true
         this.pausado = true
@@ -691,6 +716,7 @@ export class Motor extends EventEmitter {
     // só registra quando muda (de OK para falha, ou um erro diferente)
     if (s.info.siteOk !== false || s.info.erro !== erro) logErro(`Navegador #${s.info.slot}`, `${s.perfil.nome}: falha no site ${s.info.url ?? ''} · ${erro}`)
     s.info.siteOk = false
+    if (store.config.recursosExtras?.categorizarFalhas) s.info.erroCategoria = categorizarFalha(erro)
     this.registrar(s, 'site', erro)
     s.info.verificadoEm = Date.now()
     if (s.info.status === 'ok' || s.info.erroDoSite) {
@@ -705,6 +731,7 @@ export class Motor extends EventEmitter {
     if (s.info.siteOk === false) this.registrar(s, 'site', 'Página voltou a responder')
     if (s.info.siteOk === false) logOk(`Navegador #${s.info.slot}`, `${s.perfil.nome}: o site voltou a carregar (${s.info.url ?? ''}).`)
     s.info.siteOk = true
+    s.info.erroCategoria = undefined
     s.info.verificadoEm = Date.now()
     if (s.info.erroDoSite) {
       s.info.status = 'ok'
