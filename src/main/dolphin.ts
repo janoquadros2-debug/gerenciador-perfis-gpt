@@ -13,7 +13,7 @@ const local = () => `http://localhost:${store.config.portaLocalDolphin}`
 async function nuvem<T = any>(caminho: string, init: RequestInit = {}): Promise<T> {
   const token = store.config.tokenDolphin
   if (!token) throw new Error('Cole o token da API do Dolphin em Configurações > Dolphin Anty.')
-  const r = await fetch(NUVEM + caminho, {
+  const executar = () => fetch(NUVEM + caminho, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -22,6 +22,18 @@ async function nuvem<T = any>(caminho: string, init: RequestInit = {}): Promise<
       ...(init.headers ?? {})
     }
   })
+  let r: Response
+  try {
+    r = await executar()
+  } catch (e) {
+    if (init.method || !store.config.recursosExtras?.retryLeituras) throw e
+    await new Promise((ok) => setTimeout(ok, 900))
+    r = await executar()
+  }
+  if (!init.method && store.config.recursosExtras?.retryLeituras && (r.status === 429 || r.status >= 500)) {
+    await new Promise((ok) => setTimeout(ok, 1100))
+    r = await executar()
+  }
   const texto = await r.text()
   if (!r.ok) {
     if (r.status === 401) throw new Error('Token do Dolphin inválido ou expirado.')
@@ -108,7 +120,29 @@ function paraPerfil(p: any): Perfil {
   }
 }
 
+async function listarComCursor(): Promise<Perfil[]> {
+  const todos: Perfil[] = []
+  let cursor: string | undefined
+  const visitados = new Set<string>()
+  for (let n = 0; n < 250; n++) {
+    const caminho: string = '/browser_profiles/list-cursor?limit=100' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')
+    const r: any = await nuvem(caminho)
+    const lista = Array.isArray(r.data) ? r.data : Array.isArray(r.data?.data) ? r.data.data : []
+    todos.push(...lista.map(paraPerfil))
+    const prox: unknown = r.next_page_url ?? r.meta?.next_page_url ?? r.pagination?.next_page_url
+    if (typeof prox !== 'string' || !prox || !lista.length) break
+    const u = new URL(prox, NUVEM)
+    if (u.origin !== NUVEM) throw new Error('A API retornou uma URL de cursor externa ao Dolphin.')
+    cursor = u.searchParams.get('cursor') ?? undefined
+    if (!cursor || visitados.has(cursor)) break
+    visitados.add(cursor)
+  }
+  return todos
+}
+
 export async function listarPerfis(): Promise<Perfil[]> {
+  if (store.config.recursosExtras?.apiCursor) return listarComCursor()
+
   const todos: Perfil[] = []
   let pagina = 1
   for (;;) {
