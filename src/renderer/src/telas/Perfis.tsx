@@ -258,6 +258,7 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
   const tempoInvalido = tempo.modo === 'aleatorio' && tempo.de > tempo.ate
   const f5 = o.recarregar ?? { modo: 'sem-limite' as const, minutos: 5, de: 3, ate: 5 }
   const f5Invalido = f5.modo === 'aleatorio' && f5.de > f5.ate
+  const pausaInvalida = !Number.isFinite(o.tempoFechadoMinutos ?? 0) || (o.tempoFechadoMinutos ?? 0) > 10080
 
   return (
     <Modal titulo="Criar perfis em massa" sub="Os perfis são criados direto no seu Dolphin Anty." aoFechar={() => !criando && aoFechar()}>
@@ -435,7 +436,14 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
               </label>
             ))}
           </div>
-          {(o.aoAcabar ?? 'reabrir') === 'reabrir' && <span className="dica">Fecha, espera 3 s e abre o mesmo perfil no mesmo lugar, com o mesmo proxy e um tempo novo{tempo.modo === 'aleatorio' ? ' sorteado' : ''}. Fica nesse ciclo até você encerrar ou pausar.</span>}
+          {(o.aoAcabar ?? 'reabrir') === 'reabrir' && <>
+            <label className="campo">
+              Tempo fechado antes de reabrir (minutos) — opcional
+              <input type="number" className="solto" min={0} max={10080} step={1} value={o.tempoFechadoMinutos ?? 0}
+                onChange={(e) => muda({ tempoFechadoMinutos: Math.max(0, Number(e.target.value)) })} style={{ width: 140 }} />
+            </label>
+            <span className="dica">Ao fechar, aguarda {o.tempoFechadoMinutos ? o.tempoFechadoMinutos + ' min' : '3 segundos (modo antigo)'}, reabre o mesmo perfil no mesmo slot e retorna à última URL HTTP/HTTPS conhecida. Preserva os dados do perfil Dolphin; não garante o ponto exato do vídeo. Você poderá editar ou cancelar o ciclo no Ao vivo.</span>
+          </>}
         </div>
       )}
       {tempo.modo !== 'sem-limite' && (
@@ -512,7 +520,7 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
         {passa > 0 ? (
           <button className="btn primario" onClick={() => muda({ quantidade: Math.max(1, LIMITE_PLANO - total) })}>Ajustar para {Math.max(0, LIMITE_PLANO - total)}</button>
         ) : (
-          <button className="btn primario" disabled={criando || !o.nomeBase.trim() || porcInvalida || tempoInvalido || f5Invalido} onClick={() => { setProg({ feitos: 0, total: o.quantidade, erros: [], terminou: false }); chamar('criarEmMassa', { ...o, porcentagens: porc, tempoAberto: tempo, recarregar: f5, cookies: o.cookies ?? 'aceitar', aoAcabar: o.aoAcabar ?? 'reabrir' }) }}>
+          <button className="btn primario" disabled={criando || !o.nomeBase.trim() || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida} onClick={() => { setProg({ feitos: 0, total: o.quantidade, erros: [], terminou: false }); chamar('criarEmMassa', { ...o, porcentagens: porc, tempoAberto: tempo, recarregar: f5, cookies: o.cookies ?? 'aceitar', aoAcabar: o.aoAcabar ?? 'reabrir' }) }}>
             {o.abrirAoCriar ? 'Criar e abrir' : 'Criar'} {o.quantidade} perfis
           </button>
         )}
