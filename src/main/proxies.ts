@@ -105,6 +105,9 @@ export async function testarVarios(lista: Proxy[], simultaneos = 10, aoTerminarU
       const p = fila.shift()
       if (!p) return
       p.ultimoTeste = await testarProxy(p)
+      if (store.config.recursosExtras?.historicoTestesProxy) {
+        p.historicoTestes = [...(p.historicoTestes ?? []), p.ultimoTeste].slice(-20)
+      }
       aoTerminarUm?.(p)
     }
   }
@@ -140,6 +143,7 @@ export function proximoProxy(): Proxy {
   }
 
   escolhido.usos += 1
+  if (store.config.recursosExtras?.validadeProxyInformativa && !escolhido.primeiroUsoEm) escolhido.primeiroUsoEm = Date.now()
   store.setProxies(lista)
   return escolhido
 }
@@ -170,6 +174,7 @@ export function mesclarNaLista(novos: Proxy[]): Proxy[] {
 export function marcarUsado(p: Proxy) {
   if (!store.usadosNaRodada.includes(p.id)) store.usadosNaRodada = [...store.usadosNaRodada, p.id]
   p.usos += 1
+  if (store.config.recursosExtras?.validadeProxyInformativa && !p.primeiroUsoEm) p.primeiroUsoEm = Date.now()
   store.setProxies(store.proxies)
 }
 
