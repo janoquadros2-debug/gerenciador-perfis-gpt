@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { chamar, formatarGB, useConfig, useEstado, useRede } from '../api'
 import { PcSecundario } from './PcSecundario'
+import { RecursosExtras } from './RecursosExtras'
 import { Opcao } from '../componentes'
 
-type Aba = 'execucao' | 'dolphin' | 'pc2' | 'comfy' | 'geral'
+type Aba = 'execucao' | 'dolphin' | 'pc2' | 'comfy' | 'geral' | 'extras'
 
 const ConfigComfy = __EDICAO__ === 'completa' ? lazy(() => import('./ia/ConfigComfy')) : null
 
@@ -19,7 +20,7 @@ export function Configuracoes({ abaInicial }: { abaInicial?: string }) {
   const [testando, setTestando] = useState(false)
   if (!cfg) return null
 
-  const abas: [Aba, string][] = [['execucao', 'Execução'], ['dolphin', 'Dolphin Anty'], ['pc2', 'PC secundário'], ['comfy', 'ComfyUI'], ['geral', 'Geral']].filter(
+  const abas: [Aba, string][] = [['execucao', 'Execução'], ['dolphin', 'Dolphin Anty'], ['pc2', 'PC secundário'], ['comfy', 'ComfyUI'], ['geral', 'Geral'], ['extras', 'Novos recursos']].filter(
     ([v]) => (v !== 'pc2' && v !== 'comfy') || (rede?.edicao === 'completa' && (v !== 'comfy' || !!ConfigComfy))
   ) as [Aba, string][]
 
@@ -149,6 +150,8 @@ export function Configuracoes({ abaInicial }: { abaInicial?: string }) {
           <ConfigComfy />
         </Suspense>
       )}
+
+      {aba === 'extras' && <RecursosExtras />}
 
       {aba === 'geral' && (
         <section className="painel" style={{ gap: 0, paddingTop: 6, paddingBottom: 6 }}>
