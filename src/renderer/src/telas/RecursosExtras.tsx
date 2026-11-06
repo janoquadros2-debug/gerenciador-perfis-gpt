@@ -26,7 +26,7 @@ export function RecursosExtras() {
   if (!cfg) return null
   const extras: RecursosExtras = { apiCursor:false, retryLeituras:false, diarioOperacoes:false, historicoPersistente:false,
     categorizarFalhas:false, detectarIpsRepetidos:false, historicoTestesProxy:false,
-    validadeProxyInformativa:false, preservarVideoNoF5:false, validarAbertura:false,
+    validadeProxyInformativa:false, validarAbertura:false,
     ...(cfg.recursosExtras ?? {}) }
   const alterar = (chave: keyof RecursosExtras, valor: boolean) => {
     salvar({ recursosExtras: { ...extras, [chave]: valor } } as Partial<Configuracoes>)
