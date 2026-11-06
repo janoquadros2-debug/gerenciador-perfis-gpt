@@ -66,6 +66,7 @@ export interface Navegador {
   fechando?: boolean // o tempo acabou e ele está fechando agora
   reabreAoAcabar?: boolean // quando o tempo acabar, fecha e abre de novo
   tempoFechadoMinutos?: number // descanso entre fechar e reabrir (opcional)
+  tempoFechado?: TempoAberto // configuração opcional de descanso fixo ou aleatório
   url?: string // endereço que o navegador está acessando agora
   siteOk?: boolean // última verificação: o site está carregado?
   verificadoEm?: number // quando foi a última verificação
@@ -169,7 +170,7 @@ export interface EstadoMotor {
   capacidadePorGrupo?: number
   totalGrupos?: number
   grupoVisivel?: number
-  ciclosEmEspera?: { slot: number; perfilId: number; perfilNome: string; reabreEm: number; tempoFechadoMinutos: number }[]
+  ciclosEmEspera?: { slot: number; perfilId: number; perfilNome: string; reabreEm: number; tempoFechadoMinutos: number; tempoSorteadoMinutos: number; tempoFechado?: TempoAberto }[]
 }
 
 export interface Monitor {
@@ -209,6 +210,7 @@ export interface OpcoesCriacaoMassa {
   tempoAberto?: TempoAberto // vale para esta criação e para o "+1 / Adicionar"
   aoAcabar?: 'fechar' | 'reabrir' // quando o tempo aberto acabar: só fecha, ou fecha e abre de novo (com tempo novo)
   tempoFechadoMinutos?: number // opcional: espera depois do fechamento, 0 mantém os antigos 3 segundos
+  tempoFechado?: TempoAberto // se informado, fixa ou sorteia novo descanso a cada fechamento
   recarregar?: TempoAberto // F5 sozinho: 'sem-limite' = desligado; fixo ou aleatório (ex.: de 3 a 5 min)
   privacidade?: 'anonimo' | 'padrao' // anonimo = cada perfil com impressão digital única (ruído, hardware, tela, MAC…)
 }
