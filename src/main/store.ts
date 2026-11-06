@@ -40,7 +40,6 @@ export const EXTRAS_PADRAO: RecursosExtras = {
   detectarIpsRepetidos: false,
   historicoTestesProxy: false,
   validadeProxyInformativa: false,
-  preservarVideoNoF5: false,
   validarAbertura: false
 }
 
