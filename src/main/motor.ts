@@ -27,6 +27,7 @@ interface Sessao {
   tempoAberto?: TempoAberto
   aoAcabar?: 'fechar' | 'reabrir'
   tempoFechadoMinutos?: number
+  tempoFechado?: TempoAberto
   f5EmAndamento?: boolean
   fechando?: boolean
   amostraMidia?: AmostraMidia
@@ -54,12 +55,14 @@ interface ItemFila {
   tempoAberto?: TempoAberto // para sortear um tempo novo ao reabrir
   aoAcabar?: 'fechar' | 'reabrir'
   tempoFechadoMinutos?: number
+  tempoFechado?: TempoAberto
 }
 
 interface CicloEmEspera {
   item: ItemFila
   reabreEm: number
   tempoFechadoMinutos: number
+  tempoSorteadoMinutos: number
   timer?: NodeJS.Timeout
 }
 
@@ -120,7 +123,7 @@ export class Motor extends EventEmitter {
       pausado: this.pausado,
       navegadores: navegadorLista,
       fila: this.fila.length,
-      ciclosEmEspera: [...this.ciclosEmEspera].map(([slot, c]) => ({ slot, perfilId: c.item.perfil.id, perfilNome: c.item.perfil.nome, reabreEm: c.reabreEm, tempoFechadoMinutos: c.tempoFechadoMinutos })),
+      ciclosEmEspera: [...this.ciclosEmEspera].map(([slot, c]) => ({ slot, perfilId: c.item.perfil.id, perfilNome: c.item.perfil.nome, reabreEm: c.reabreEm, tempoFechadoMinutos: c.tempoFechadoMinutos, tempoSorteadoMinutos: c.tempoSorteadoMinutos, tempoFechado: c.item.tempoFechado })),
       ram: this.ram(),
       avisos: this.avisos.slice(-5),
       proxiesEsgotados: this.proxiesEsgotados,
@@ -201,7 +204,7 @@ export class Motor extends EventEmitter {
   // ---------- abrir ----------
   abrir(
     perfis: Perfil[],
-    opcoes: { manterProxy?: boolean; duracaoMs?: number; recarregar?: TempoAberto; cookies?: ModoCookies; tempoAberto?: TempoAberto; aoAcabar?: 'fechar' | 'reabrir'; tempoFechadoMinutos?: number } = {}
+    opcoes: { manterProxy?: boolean; duracaoMs?: number; recarregar?: TempoAberto; cookies?: ModoCookies; tempoAberto?: TempoAberto; aoAcabar?: 'fechar' | 'reabrir'; tempoFechadoMinutos?: number; tempoFechado?: TempoAberto } = {}
   ) {
     const ocupados = new Set([...this.sessoes.values()].map((s) => s.perfil.id).concat(this.fila.map((f) => f.perfil.id), [...this.ciclosEmEspera.values()].map((c) => c.item.perfil.id)))
     const recarregar = opcoes.recarregar && opcoes.recarregar.modo !== 'sem-limite' ? opcoes.recarregar : undefined
@@ -214,7 +217,8 @@ export class Motor extends EventEmitter {
           cookies: opcoes.cookies,
           tempoAberto: opcoes.tempoAberto && opcoes.tempoAberto.modo !== 'sem-limite' ? opcoes.tempoAberto : undefined,
           aoAcabar: opcoes.aoAcabar,
-          tempoFechadoMinutos: opcoes.tempoFechadoMinutos
+          tempoFechadoMinutos: opcoes.tempoFechadoMinutos,
+          tempoFechado: opcoes.tempoFechado
         })
     this.avisarMudanca()
     this.processarFila()
@@ -299,6 +303,7 @@ export class Motor extends EventEmitter {
       tempoAberto: item.tempoAberto ?? anterior?.tempoAberto,
       aoAcabar: item.aoAcabar ?? anterior?.aoAcabar,
       tempoFechadoMinutos: item.tempoFechadoMinutos ?? anterior?.tempoFechadoMinutos,
+      tempoFechado: item.tempoFechado ?? anterior?.tempoFechado,
       info: {
         slot,
         perfilId: item.perfil.id,
@@ -310,7 +315,8 @@ export class Motor extends EventEmitter {
         abertoEm: Date.now(),
         fechaEm: item.fechaEm,
         reabreAoAcabar: (item.aoAcabar ?? anterior?.aoAcabar) === 'reabrir' && !!(item.tempoAberto ?? anterior?.tempoAberto),
-        tempoFechadoMinutos: item.tempoFechadoMinutos ?? anterior?.tempoFechadoMinutos
+        tempoFechadoMinutos: item.tempoFechadoMinutos ?? anterior?.tempoFechadoMinutos,
+        tempoFechado: item.tempoFechado ?? anterior?.tempoFechado
       }
     }
     sessao.info.historico = [...(this.historicos.get(item.perfil.id) ?? (cfg.recursosExtras?.historicoPersistente ? store.historicosPerfis[item.perfil.id] ?? [] : []))]
@@ -454,7 +460,7 @@ export class Motor extends EventEmitter {
       sessao.info.status = 'abrindo'
       sessao.info.erro = `Caiu, reabrindo (${sessao.info.quedas}/${cfg.tentativasReabrir})`
       this.fila.unshift({ perfil: sessao.perfil, slot, proxy: undefined, fechaEm: sessao.info.fechaEm,
-        recarregar: sessao.recarregar, tempoAberto: sessao.tempoAberto, aoAcabar: sessao.aoAcabar, cookies: sessao.cookies, tempoFechadoMinutos: sessao.tempoFechadoMinutos })
+        recarregar: sessao.recarregar, tempoAberto: sessao.tempoAberto, aoAcabar: sessao.aoAcabar, cookies: sessao.cookies, tempoFechadoMinutos: sessao.tempoFechadoMinutos, tempoFechado: sessao.tempoFechado })
       this.processarFila()
     } else {
       sessao.info.status = 'erro'
@@ -470,7 +476,7 @@ export class Motor extends EventEmitter {
     if (!s) return
     if (!s.browser?.connected) {
       this.fila.unshift({ perfil: s.perfil, slot, fechaEm: s.info.fechaEm,
-        recarregar: s.recarregar, tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar, cookies: s.cookies, tempoFechadoMinutos: s.tempoFechadoMinutos })
+        recarregar: s.recarregar, tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar, cookies: s.cookies, tempoFechadoMinutos: s.tempoFechadoMinutos, tempoFechado: s.tempoFechado })
       this.processarFila()
       return
     }
@@ -499,7 +505,8 @@ export class Motor extends EventEmitter {
     tipo: 'f5' | 'fechamento',
     tempo: TempoAberto,
     aoAcabar: 'fechar' | 'reabrir' = 'fechar',
-    tempoFechadoMinutos?: number
+    tempoFechadoMinutos?: number,
+    tempoFechado?: TempoAberto
   ): { alterados: number; ignorados: number } {
     if (!Array.isArray(slots) || !['f5', 'fechamento'].includes(tipo)) throw new Error('Seleção inválida')
     if (!tempo || !['sem-limite', 'fixo', 'aleatorio'].includes(tempo.modo)) throw new Error('Modo de tempo inválido')
@@ -508,6 +515,12 @@ export class Motor extends EventEmitter {
     if (tempo.modo === 'fixo' && tempo.minutos <= 0) throw new Error('Tempo fixo deve ser maior que zero')
     if (tempo.modo === 'aleatorio' && (tempo.de <= 0 || tempo.ate <= 0 || tempo.de > tempo.ate)) throw new Error('Intervalo aleatório inválido')
     if (tempoFechadoMinutos !== undefined && (!Number.isFinite(tempoFechadoMinutos) || tempoFechadoMinutos < 0 || tempoFechadoMinutos > 10080)) throw new Error('Tempo fechado inválido')
+    if (tempoFechado && tempoFechado.modo !== 'sem-limite') {
+      const valido = [tempoFechado.minutos, tempoFechado.de, tempoFechado.ate].every((x) => Number.isFinite(x) && x >= 0 && x <= 10080)
+      if (!valido || (tempoFechado.modo === 'fixo' && tempoFechado.minutos <= 0) ||
+          (tempoFechado.modo === 'aleatorio' && (tempoFechado.de <= 0 || tempoFechado.de > tempoFechado.ate)))
+        throw new Error('Intervalo de descanso inválido')
+    }
     const agora = Date.now()
     let alterados = 0
     for (const slot of new Set(slots)) {
@@ -523,7 +536,10 @@ export class Motor extends EventEmitter {
         s.info.fechaEm = ativo ? agora + (sortearDuracao(tempo) ?? 0) : undefined
         s.info.reabreAoAcabar = ativo && aoAcabar === 'reabrir'
         if (tempoFechadoMinutos !== undefined) s.tempoFechadoMinutos = tempoFechadoMinutos
+        if (tempoFechado !== undefined) s.tempoFechado = tempoFechado.modo === 'sem-limite' ? undefined : { ...tempoFechado }
+        else if (tempoFechadoMinutos !== undefined) s.tempoFechado = undefined
         s.info.tempoFechadoMinutos = s.tempoFechadoMinutos
+        s.info.tempoFechado = s.tempoFechado
       }
       alterados++
     }
@@ -591,20 +607,23 @@ export class Motor extends EventEmitter {
     await this.encerrar([slot])
     if (!reabrir || !s.tempoAberto || s.aoAcabar !== 'reabrir') return
     // Opcional: espera configurável; os antigos 3 segundos permanecem por padrão.
-    const pausa = Number(s.tempoFechadoMinutos) > 0 ? Number(s.tempoFechadoMinutos) : 0
+    const pausa = s.tempoFechado && s.tempoFechado.modo !== 'sem-limite'
+      ? sortearDuracao(s.tempoFechado) ?? 3000
+      : Number(s.tempoFechadoMinutos) > 0 ? Number(s.tempoFechadoMinutos) * 60_000 : 3000
+    logInfo(`Navegador #${slot}`, `Descanso sorteado/configurado: ${(pausa / 60_000).toFixed(2)} minutos.`)
     const urlAtual = s.info.url
     const perfil = urlAtual && /^https?:\/\//i.test(urlAtual) ? { ...s.perfil, site: urlAtual } : s.perfil
     this.agendarReabertura({
       perfil, slot, manterProxy: true, duracaoMs: sortearDuracao(s.tempoAberto),
       tempoAberto: s.tempoAberto, aoAcabar: s.aoAcabar,
-      recarregar: s.recarregar, cookies: s.cookies, tempoFechadoMinutos: s.tempoFechadoMinutos
-    }, pausa ? pausa * 60_000 : 3000)
+      recarregar: s.recarregar, cookies: s.cookies, tempoFechadoMinutos: s.tempoFechadoMinutos, tempoFechado: s.tempoFechado
+    }, pausa)
   }
 
   private agendarReabertura(item: ItemFila, esperaMs: number) {
     const slot = item.slot!
     this.cancelarEsperaInterna(slot)
-    const ciclo: CicloEmEspera = { item, reabreEm: Date.now() + esperaMs, tempoFechadoMinutos: item.tempoFechadoMinutos ?? 0 }
+    const ciclo: CicloEmEspera = { item, reabreEm: Date.now() + esperaMs, tempoFechadoMinutos: item.tempoFechadoMinutos ?? 0, tempoSorteadoMinutos: esperaMs / 60_000 }
     this.ciclosEmEspera.set(slot, ciclo)
     const verificar = () => {
       if (this.ciclosEmEspera.get(slot) !== ciclo) return
@@ -654,13 +673,16 @@ export class Motor extends EventEmitter {
     const ciclo = this.ciclosEmEspera.get(slot)
     if (ciclo) {
       ciclo.item.tempoFechadoMinutos = minutos
+      ciclo.item.tempoFechado = undefined // alteração manual substitui o sorteio somente daqui em diante
       this.agendarReabertura(ciclo.item, minutos * 60_000)
       return
     }
     const s = this.sessoes.get(slot)
     if (!s) throw new Error('Perfil não encontrado.')
     s.tempoFechadoMinutos = minutos
+    s.tempoFechado = undefined
     s.info.tempoFechadoMinutos = minutos
+    s.info.tempoFechado = undefined
     this.registrar(s, 'temporizador', `Tempo fechado: ${minutos} min`)
     this.avisarMudanca()
   }
