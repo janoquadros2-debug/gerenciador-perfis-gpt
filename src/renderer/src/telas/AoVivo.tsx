@@ -85,6 +85,8 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
           <span className="selo neutro">{semConfirmacao} sem confirmação</span>
           <span className="selo neutro">{navs.filter((n) => n.avisoCookies).length} avisos de cookies</span>
         </div>
+        {navs.some((n)=>n.ipRepetido) && <div className="aviso">IP de saída repetido em: {navs.filter((n)=>n.ipRepetido).map((n)=>'#'+n.slot+' ('+n.ip+')').join(' · ')}. Confirme se isso é esperado na sua rede.</div>}
+        {navs.some((n)=>n.erroCategoria) && <span className="dica">Categorias de falha: {navs.filter((n)=>n.erroCategoria).map((n)=>'#'+n.slot+' '+n.erroCategoria).join(' · ')}</span>}
         {comErro > 0 && <span className="dica">Com problema: {navs.filter((n) => n.status === 'erro').slice(0, 12).map((n) => '#' + n.slot + ' ' + (n.erro ?? 'falha')).join(' · ')}</span>}
       </div>
       {(estado?.totalGrupos ?? 1) > 1 && (
