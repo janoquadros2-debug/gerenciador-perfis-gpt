@@ -189,7 +189,7 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
           store.setSite2(existente.id, site2)
           existente.site2 = site2
         }
-        if (o.abrirAoCriar) motor.abrir([existente], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos })
+        if (o.abrirAoCriar) motor.abrir([existente], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos, tempoFechado: o.tempoFechado })
         pulados++
         prog.feitos = i + 1
         prog.pulados = pulados
@@ -213,7 +213,7 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
             site2: o.site2?.trim() || undefined
           }
           motor.perfis.push(novo)
-          motor.abrir([novo], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos }) // abre já, enquanto os próximos vão sendo criados
+          motor.abrir([novo], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos, tempoFechado: o.tempoFechado }) // abre já, enquanto os próximos vão sendo criados
         }
       } catch (e: any) {
         prog.erros.push(`${nome}: ${e.message}`)
@@ -244,8 +244,8 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   verificarVideoAgora: (slot: number) => motor.verificarAgora(slot),
   testarPlayLocal: (slot: number) => motor.testarPlayLocal(slot),
   retomarDiagnostico: (slot: number) => motor.retomarDiagnostico(slot),
-  ajustarCronometros: (slots: number[], tipo: 'f5' | 'fechamento', tempo: import('../shared/types').TempoAberto, aoAcabar?: 'fechar' | 'reabrir', tempoFechadoMinutos?: number) =>
-    motor.ajustarCronometros(slots, tipo, tempo, aoAcabar, tempoFechadoMinutos),
+  ajustarCronometros: (slots: number[], tipo: 'f5' | 'fechamento', tempo: import('../shared/types').TempoAberto, aoAcabar?: 'fechar' | 'reabrir', tempoFechadoMinutos?: number, tempoFechado?: import('../shared/types').TempoAberto) =>
+    motor.ajustarCronometros(slots, tipo, tempo, aoAcabar, tempoFechadoMinutos, tempoFechado),
   cancelarCiclo: (slot: number) => motor.cancelarCiclo(slot),
   alterarEsperaCiclo: (slot: number, minutos: number) => motor.alterarEsperaCiclo(slot, minutos),
   reabrirCicloAgora: (slot: number) => motor.reabrirCicloAgora(slot),
@@ -443,7 +443,7 @@ async function adicionarNovos(n: number) {
         site2: m.site2?.trim() || undefined
       }
       motor.perfis.push(novo)
-      motor.abrir([novo], { manterProxy: true, tempoAberto: m.tempoAberto, aoAcabar: m.aoAcabar ?? 'reabrir', recarregar: m.recarregar, cookies: m.cookies, tempoFechadoMinutos: m.tempoFechadoMinutos })
+      motor.abrir([novo], { manterProxy: true, tempoAberto: m.tempoAberto, aoAcabar: m.aoAcabar ?? 'reabrir', recarregar: m.recarregar, cookies: m.cookies, tempoFechadoMinutos: m.tempoFechadoMinutos, tempoFechado: m.tempoFechado })
     } catch (e: any) {
       logErro('Adicionar', `${nome} não foi criado: ${e.message}`)
       motor.avisar(`${nome}: ${e.message}`)
