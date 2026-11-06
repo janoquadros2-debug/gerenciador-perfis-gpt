@@ -518,6 +518,10 @@ export class Motor extends EventEmitter {
         const s = this.sessoes.get(slot)
         if (!s) return
         s.encerradoPorVoce = true
+        const opFecharId = store.config.recursosExtras?.diarioOperacoes ? randomUUID() : undefined
+        const opInicio = Date.now()
+        if (opFecharId) store.registrarOperacao({id:opFecharId,tipo:'fechar',estado:'pendente',perfilId:s.perfil.id,
+          perfilNome:s.perfil.nome,slot,iniciadoEm:opInicio,atualizadoEm:opInicio})
         logInfo(`Navegador #${slot}`, `${s.perfil.nome} encerrado${manterVaga ? ' para substituir' : ''}.`)
         // fecha pelos dois caminhos ao mesmo tempo, sem deixar nenhum travar (máximo 15 s)
         const limite = (p: Promise<unknown>) => Promise.race([p.catch(() => undefined), new Promise((ok) => setTimeout(ok, 15_000))])
@@ -534,6 +538,10 @@ export class Motor extends EventEmitter {
             /* já desligou */
           }
         }
+        if (opFecharId) store.registrarOperacao({id:opFecharId,tipo:'fechar',
+          estado:s.browser?.connected ? 'erro' : 'concluida',
+          perfilId:s.perfil.id,perfilNome:s.perfil.nome,slot,iniciadoEm:opInicio,atualizadoEm:Date.now(),
+          detalhe:s.browser?.connected ? 'O navegador ainda responde; verifique o Dolphin manualmente.' : 'Encerramento confirmado pela desconexão.'})
         if (!manterVaga && this.sessoes.get(slot) === s) this.sessoes.delete(slot)
       })
     )
