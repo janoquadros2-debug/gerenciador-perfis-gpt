@@ -105,7 +105,6 @@ export interface RecursosExtras {
   detectarIpsRepetidos: boolean
   historicoTestesProxy: boolean
   validadeProxyInformativa: boolean
-  preservarVideoNoF5: boolean
   validarAbertura: boolean
 }
 
