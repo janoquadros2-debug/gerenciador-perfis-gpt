@@ -454,6 +454,7 @@ const LOCAIS = new Set([
   'versao', 'edicao', 'estadoAtualizacao', 'verificarAtualizacao', 'atualizarAgora', 'estadoAtualizacaoOutro', 'atualizarOutroPc',
   'rede', 'salvarRede', 'procurarPcs', 'novoCodigo',
   'sugestoes', 'adicionarSugestao', 'apagarSugestao', 'abrirPastaLogs',
+  'exportarBackupLocal',
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
   'sunoJaSalvos', 'sunoSalvar', 'sunoLog', 'sunoStatus', 'sunoEntrar', 'sunoAbrir', 'sunoFechar', 'sunoApi', 'sunoPreencher', 'sunoPedido', 'sunoEsquecerPedido', 'sunoGuardarSozinho', 'sunoNovas', 'sunoPuxarVistas',
   'hardwareLocal', 'hardwareTodos', 'diagnosticoRede',
