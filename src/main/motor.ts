@@ -589,7 +589,7 @@ export class Motor extends EventEmitter {
     const reabrir = s.aoAcabar === 'reabrir' && !!s.tempoAberto
     logInfo(`Navegador #${slot}`, `${s.perfil.nome}: o tempo aberto acabou${reabrir ? ', fechando e abrindo de novo' : ', fechando'}.`)
     await this.encerrar([slot])
-    if (!reabrir || this.pausado) return
+    if (!reabrir || !s.tempoAberto || s.aoAcabar !== 'reabrir') return
     // Opcional: espera configurável; os antigos 3 segundos permanecem por padrão.
     const pausa = Number(s.tempoFechadoMinutos) > 0 ? Number(s.tempoFechadoMinutos) : 0
     const urlAtual = s.info.url
