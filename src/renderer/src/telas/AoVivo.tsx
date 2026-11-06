@@ -28,6 +28,9 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
   const [testandoPlay, setTestandoPlay] = useState(false)
   const [resultadoPlay, setResultadoPlay] = useState('')
   const [cronometros, setCronometros] = useState<{ slots: number[]; nome: string } | null>(null)
+  const [editarEspera, setEditarEspera] = useState<number | null>(null)
+  const [novaEspera, setNovaEspera] = useState('3')
+  const [erroCiclo, setErroCiclo] = useState('')
 
   const navs = estado?.navegadores ?? []
   // relógio de 1 em 1 segundo para a contagem regressiva
@@ -108,6 +111,29 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
           <span className="dica">{estado?.capacidadePorGrupo ?? 0} posições por grupo · {estado?.totalGrupos ?? 1} grupos no total</span>
         </div>
       )}
+      {!!estado?.ciclosEmEspera?.length && <section className="painel">
+        <strong>Perfis fechados aguardando reabertura</strong>
+        <span className="dica">O navegador Dolphin já foi fechado. A contagem continua neste aplicativo; ao pausá-lo, a reabertura aguarda o comando Retomar.</span>
+        {estado.ciclosEmEspera.map((c) => <div key={c.slot} className="linha" style={{flexWrap:'wrap',gap:10}}>
+          <span className="numero">#{c.slot}</span>
+          <strong>{c.perfilNome}</strong>
+          <span className="selo neutro">Reabre em {restante(Math.max(0,c.reabreEm-agora))}</span>
+          <button className="btn pequeno" onClick={() => { setEditarEspera(c.slot); setNovaEspera(String(c.tempoFechadoMinutos || 3)); setErroCiclo('') }}>Alterar espera</button>
+          <button className="btn pequeno" onClick={() => chamar('reabrirCicloAgora',c.slot)}>Reabrir agora</button>
+          <button className="btn pequeno perigo" onClick={() => chamar('cancelarCiclo',c.slot)}>Cancelar ciclo</button>
+        </div>)}
+        {editarEspera !== null && <div className="linha" style={{gap:10,flexWrap:'wrap'}}>
+          <label className="campo">Novo tempo fechado (minutos)
+            <input className="solto" type="number" min={0.1} max={10080} step={0.1} value={novaEspera} onChange={(e)=>setNovaEspera(e.target.value)} style={{width:130}} />
+          </label>
+          <button className="btn primario pequeno" onClick={async () => {
+            try { await chamar('alterarEsperaCiclo',editarEspera,Number(novaEspera)); setEditarEspera(null); setErroCiclo('') }
+            catch(e){setErroCiclo(String(e instanceof Error?e.message:e))}
+          }}>Aplicar agora</button>
+          <button className="btn pequeno" onClick={()=>setEditarEspera(null)}>Fechar</button>
+          {erroCiclo && <span className="dica">{erroCiclo}</span>}
+        </div>}
+      </section>}
       <PainelHardware />
       <div className="painel">
         <div className="linha" style={{ gap: 14 }}>
@@ -271,6 +297,7 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
       <div className="linha" style={{ gap: 6 }}>
         <button className="btn pequeno" style={{ flex: 1 }} onClick={() => chamar('f5', n.slot)}>F5</button>
         <button className="btn pequeno" title="Programar ou desativar F5 e fechamento automáticos neste perfil" onClick={aoProgramar}>Tempos</button>
+        {n.reabreAoAcabar && <button className="btn pequeno perigo" title="Desligar apenas o ciclo fechar/reabrir; não desativa o F5" onClick={() => chamar('cancelarCiclo',n.slot)}>Cancelar ciclo</button>}
         <button className="btn pequeno" disabled={testandoProxy} title="Testar a conexão do proxy sem mudar o perfil" onClick={diagnosticarProxy}>{testandoProxy ? 'Testando…' : 'Testar proxy'}</button>
         <button className="btn pequeno" disabled={verificandoVideo || n.status !== 'ok'} onClick={async () => {
           setVerificandoVideo(true)
@@ -293,6 +320,7 @@ function ProgramarCronometros({ slots, nome, aoFechar }: { slots: number[]; nome
   const [de, setDe] = useState(3)
   const [ate, setAte] = useState(8)
   const [aoAcabar, setAoAcabar] = useState<'fechar' | 'reabrir'>('fechar')
+  const [tempoFechadoMinutos, setTempoFechadoMinutos] = useState(0)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const aplicar = async () => {
@@ -301,10 +329,14 @@ function ProgramarCronometros({ slots, nome, aoFechar }: { slots: number[]; nome
       setErro('Confira os minutos e o intervalo informado.')
       return
     }
+    if (tipo === 'fechamento' && aoAcabar === 'reabrir' && (!Number.isFinite(tempoFechadoMinutos) || tempoFechadoMinutos < 0 || tempoFechadoMinutos > 10080)) {
+      setErro('Tempo fechado inválido.')
+      return
+    }
     setSalvando(true)
     setErro('')
     try {
-      const resultado = await chamar<{ alterados: number; ignorados: number }>('ajustarCronometros', slots, tipo, { modo, minutos, de, ate }, aoAcabar)
+      const resultado = await chamar<{ alterados: number; ignorados: number }>('ajustarCronometros', slots, tipo, { modo, minutos, de, ate }, aoAcabar, tipo === 'fechamento' && aoAcabar === 'reabrir' ? tempoFechadoMinutos : undefined)
       if (!resultado.alterados) { setErro('Nenhum perfil selecionado está disponível.'); return }
       aoFechar()
     } catch (e) {
@@ -340,6 +372,12 @@ function ProgramarCronometros({ slots, nome, aoFechar }: { slots: number[]; nome
             <option value="fechar">Fechar o navegador</option>
             <option value="reabrir">Fechar e reabrir com novo tempo</option>
           </select>
+        </label>
+      )}
+      {tipo === 'fechamento' && modo !== 'sem-limite' && aoAcabar === 'reabrir' && (
+        <label className="campo">Aguardar com navegador fechado (minutos)
+          <input className="solto" type="number" min={0} max={10080} value={tempoFechadoMinutos} onChange={(e)=>setTempoFechadoMinutos(Number(e.target.value))} style={{width:130}} />
+          <span className="dica">Zero preserva o ciclo antigo de 3 segundos. Tempo positivo usa descanso em minutos.</span>
         </label>
       )}
       <span className="dica">Alterar uma função não modifica a outra. Cada perfil sorteia seu próprio prazo quando selecionado o modo aleatório. Desativar cancela os próximos eventos.</span>
