@@ -1,5 +1,6 @@
 // Ponto de partida do programa: cria a janela e liga a interface ao motor.
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
+import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { Configuracoes, OpcoesCriacaoMassa, ProgressoCriacao, Proxy } from '../shared/types'
@@ -99,6 +100,22 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   },
   monitores: () => listarMonitores(),
   versao: () => app.getVersion(),
+  operacoes: () => store.operacoes,
+  marcarOperacoesRevisadas: () => store.reconhecerOperacoes(),
+  exportarBackupLocal: async () => {
+    salvarAgora()
+    const data = new Date().toISOString().replace(/[:.]/g, '-')
+    const r = await dialog.showSaveDialog(janela!, {
+      title: 'Salvar backup das configurações do Gerenciador de Perfis GPT',
+      defaultPath: 'Gerenciador-GPT-backup-' + data + '.json',
+      filters: [{ name: 'Backup JSON', extensions: ['json'] }]
+    })
+    if (r.canceled || !r.filePath) return { cancelado: true }
+    const origem = path.join(app.getPath('userData'), 'dados.json')
+    fs.copyFileSync(origem, r.filePath)
+    logOk('Backup', 'Configurações do aplicativo exportadas para uma cópia local.')
+    return { cancelado: false, caminho: r.filePath }
+  },
 
   // Dolphin e perfis
   testarDolphin: async () => {
@@ -531,6 +548,8 @@ app.whenReady().then(() => {
   // aba Lives: o OBS roda neste PC (o principal)
   Object.assign(acoes, acoesObs(enviarTela))
   carregar()
+  // Em reinício, pendências do diário exigem conferência, nunca reexecução automática.
+  store.reconhecerOperacoes()
   galeria.ativarProtocolo()
   // IA (ComfyUI): só existe na edição Completa; na Padrão esse código nem entra no programa
   if (__EDICAO__ === 'completa') {
