@@ -269,6 +269,12 @@ function CartaoVivo({ n, agora, aoAmpliar, aoSubstituir, aoProgramar }: { n: Nav
             </strong>
           ) : n.status === 'ok' ? 'Sem limite' : '—'}
         </span>
+        {n.reabreAoAcabar && (
+          <>
+            <span>Tempo fechado</span>
+            <span className="mono">{n.tempoFechadoMinutos ? n.tempoFechadoMinutos + ' min' : '3 segundos (antigo)'}</span>
+          </>
+        )}
         {n.proximoF5 && (
           <>
             <span>Próximo F5</span>
