@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { EstadoMotor, OpcoesCriacaoMassa, Perfil, ProgressoCriacao } from '../../../shared/types'
-import { chamar, ouvir, useConfig } from '../api'
+import { chamar, ouvir, useConfig, useRede } from '../api'
 import { avisar, confirmar } from '../confirmar'
 import { Modal, Opcao, corDoNumero } from '../componentes'
 import { contarPorSistema } from '../../../shared/sorteio'
+
+type CriacaoPc = { pcId: string; pcNome: string; progresso: ProgressoCriacao; iniciadoEm: number }
 
 export function Perfis({ estado }: { estado: EstadoMotor | null }) {
   const [perfis, setPerfis] = useState<Perfil[]>([])
@@ -13,6 +15,11 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
   const [busca, setBusca] = useState('')
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set())
   const [criando, setCriando] = useState(false)
+  const [criacoesPc, setCriacoesPc] = useState<CriacaoPc[]>([])
+  useEffect(() => {
+    chamar<CriacaoPc[]>('criacoesEmMassaEmAndamento').then(setCriacoesPc).catch(() => undefined)
+    return ouvir('criacoes-remotas', (lista: CriacaoPc[]) => setCriacoesPc(lista))
+  }, [])
   const [editando, setEditando] = useState<Perfil | null>(null)
   const [limpando, setLimpando] = useState(false)
 
@@ -73,6 +80,24 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
       </div>
 
       {erro && <div className="aviso">{erro}</div>}
+      {criacoesPc.length > 0 && (
+        <section className="painel">
+          <strong>Criações em massa por computador</strong>
+          <span className="dica">Os lotes dos PCs 2 e 3 continuam independentes, inclusive depois de fechar o formulário ou trocar a aba exibida.</span>
+          {criacoesPc.map((c) => (
+            <div key={c.pcId} style={{ display: 'grid', gap: 5 }}>
+              <div className="linha" style={{ justifyContent: 'space-between', gap: 8 }}>
+                <strong>{c.pcNome}</strong>
+                <span className={`selo ${c.progresso.terminou ? (c.progresso.erros.length ? 'erro' : 'ok') : 'neutro'}`}>
+                  {c.progresso.terminou ? 'Concluído' : 'Criando'} · {c.progresso.feitos}/{c.progresso.total}
+                </span>
+              </div>
+              <div className="barra"><div style={{ width: `${c.progresso.total ? 100 * c.progresso.feitos / c.progresso.total : 0}%` }} /></div>
+              {c.progresso.erros.length > 0 && <span className="dica" style={{ color: '#ffb3c1' }}>{c.progresso.erros.slice(-2).join(' · ')}</span>}
+            </div>
+          ))}
+        </section>
+      )}
 
       <div className="linha">
         {['Todos', ...etiquetas, 'Sem etiqueta', 'Abertos'].map((f) => (
@@ -239,6 +264,24 @@ const LIMITE_PLANO = 100
 
 function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void }) {
   const [cfg, salvarCfg] = useConfig()
+  const rede = useRede()
+  const [pcDestino, setPcDestino] = useState('')
+  const [totalDestino, setTotalDestino] = useState<number | null>(null)
+  const [erroInicio, setErroInicio] = useState('')
+  const [iniciando, setIniciando] = useState(false)
+  useEffect(() => {
+    if (rede?.papel === 'principal' && !pcDestino && rede.alvoAtivoId)
+      setPcDestino(rede.alvoAtivoId)
+  }, [rede?.papel, rede?.alvoAtivoId, pcDestino])
+  useEffect(() => {
+    if (rede?.papel !== 'principal' || !pcDestino) return
+    let ativo = true
+    setTotalDestino(null)
+    chamar<number>('quantidadePerfisNoPc', pcDestino)
+      .then((n) => { if (ativo) setTotalDestino(n) })
+      .catch((e) => { if (ativo) setErroInicio('Falha ao consultar perfis do PC: ' + String(e instanceof Error ? e.message : e)) })
+    return () => { ativo = false }
+  }, [rede?.papel, pcDestino])
   const [o, setO] = useState<OpcoesCriacaoMassa>({
     quantidade: 10, nomeBase: 'Teste', comecarDe: 1, modoProxy: 'nenhum', tipoProxy: 'http', etiqueta: 'Testes', sistema: 'windows', listaProxies: '', proxyUnico: '', site: ''
   })
@@ -246,7 +289,8 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
   useEffect(() => ouvir('progresso-criacao', setProg), [])
   const muda = (p: Partial<OpcoesCriacaoMassa>) => setO({ ...o, ...p })
 
-  const depois = total + o.quantidade
+  const totalAtual = rede?.papel === 'principal' ? (totalDestino ?? 0) : total
+  const depois = totalAtual + o.quantidade
   const passa = depois - LIMITE_PLANO
   const qtdProxies = (o.listaProxies ?? '').split(/\r?\n/).filter((l) => l.trim()).length
   const criando = prog !== null && !prog.terminou
@@ -261,7 +305,25 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
   const pausaInvalida = !Number.isFinite(o.tempoFechadoMinutos ?? 0) || (o.tempoFechadoMinutos ?? 0) > 10080
 
   return (
-    <Modal titulo="Criar perfis em massa" sub="Os perfis são criados direto no seu Dolphin Anty." aoFechar={() => !criando && aoFechar()}>
+    <Modal titulo="Criar perfis em massa" sub="Os perfis são criados direto no Dolphin Anty do computador escolhido." aoFechar={() => !criando && !iniciando && aoFechar()}>
+      {rede?.papel === 'principal' && (
+        <div className="campo">
+          Escolha o computador para esta criação
+          <div className="escolhas">
+            {(rede.pcs ?? []).map((pc, i) => (
+              <label key={pc.id} className={`escolha ${pcDestino === pc.id ? 'marcada' : ''}`}>
+                <input type="radio" name="destino-criar-massa" checked={pcDestino === pc.id}
+                  disabled={iniciando || criando || !pc.conectado}
+                  onChange={() => { setPcDestino(pc.id); setErroInicio('') }} />
+                <span>{pc.apelido || `PC ${i + 2}`}</span>
+                <span className="dica">{pc.conectado ? 'Conectado' : 'Desconectado'}</span>
+              </label>
+            ))}
+          </div>
+          <span className="dica">Cada lote fica no PC escolhido até terminar. Você pode iniciar outro lote no outro PC, sem mudar o destino da aba Ao vivo.</span>
+        </div>
+      )}
+      {erroInicio && <div className="aviso" style={{ color: '#ffb3c1' }}>{erroInicio}</div>}
       <div className="grade-campos">
         <label className="campo">Quantidade<input type="number" min={1} max={LIMITE_PLANO} value={o.quantidade} onChange={(e) => muda({ quantidade: Math.max(1, Number(e.target.value)) })} /></label>
         <label className="campo">Nome base<input value={o.nomeBase} onChange={(e) => muda({ nomeBase: e.target.value })} /></label>
@@ -499,7 +561,7 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div className="linha" style={{ justifyContent: 'space-between', fontSize: 13 }}>
           <span className="dica">Uso do plano depois de criar</span>
-          <strong>{total} → {depois} de {LIMITE_PLANO}</strong>
+          <strong>{rede?.papel === 'principal' && totalDestino === null ? 'Consultando...' : totalAtual} → {rede?.papel === 'principal' && totalDestino === null ? '—' : depois} de {LIMITE_PLANO}</strong>
         </div>
         <div className="barra"><div style={{ width: `${Math.min(100, (depois / LIMITE_PLANO) * 100)}%`, background: passa > 0 ? '#F59E0B' : undefined }} /></div>
         {passa > 0 && <span style={{ color: 'var(--amarelo)', fontSize: 13 }}>Passa do limite em {passa}. Diminua para {Math.max(0, LIMITE_PLANO - total)} ou apague perfis antigos.</span>}
@@ -520,7 +582,23 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
         {passa > 0 ? (
           <button className="btn primario" onClick={() => muda({ quantidade: Math.max(1, LIMITE_PLANO - total) })}>Ajustar para {Math.max(0, LIMITE_PLANO - total)}</button>
         ) : (
-          <button className="btn primario" disabled={criando || !o.nomeBase.trim() || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida} onClick={() => { setProg({ feitos: 0, total: o.quantidade, erros: [], terminou: false }); chamar('criarEmMassa', { ...o, porcentagens: porc, tempoAberto: tempo, recarregar: f5, cookies: o.cookies ?? 'aceitar', aoAcabar: o.aoAcabar ?? 'reabrir' }) }}>
+          <button className="btn primario" disabled={criando || iniciando || (rede?.papel === 'principal' && (totalDestino === null || !rede.pcs?.some((pc) => pc.id === pcDestino && pc.conectado))) || !o.nomeBase.trim() || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida} onClick={async () => {
+             const opcoes = { ...o, porcentagens: porc, tempoAberto: tempo, recarregar: f5, cookies: o.cookies ?? 'aceitar', aoAcabar: o.aoAcabar ?? 'reabrir' }
+             setErroInicio('')
+             if (rede?.papel === 'principal') {
+               setIniciando(true)
+               try {
+                 await chamar('iniciarCriacaoNoPc', pcDestino, opcoes)
+                 aoFechar()
+               } catch (e) { setErroInicio(String(e instanceof Error ? e.message : e)) }
+               finally { setIniciando(false) }
+             } else {
+               setProg({ feitos: 0, total: o.quantidade, erros: [], terminou: false })
+               chamar('criarEmMassa', opcoes).catch((e) => {
+                 setProg({ feitos: 0, total: o.quantidade, erros: [String(e instanceof Error ? e.message : e)], terminou: true })
+               })
+             }
+           }}>
             {o.abrirAoCriar ? 'Criar e abrir' : 'Criar'} {o.quantidade} perfis
           </button>
         )}
