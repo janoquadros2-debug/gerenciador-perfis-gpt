@@ -580,7 +580,7 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
       <div className="linha" style={{ justifyContent: 'flex-end' }}>
         <button className="btn" disabled={criando} onClick={aoFechar}>{prog?.terminou ? 'Fechar' : 'Cancelar'}</button>
         {passa > 0 ? (
-          <button className="btn primario" onClick={() => muda({ quantidade: Math.max(1, LIMITE_PLANO - total) })}>Ajustar para {Math.max(0, LIMITE_PLANO - total)}</button>
+          <button className="btn primario" onClick={() => muda({ quantidade: Math.max(1, LIMITE_PLANO - totalAtual) })}>Ajustar para {Math.max(0, LIMITE_PLANO - totalAtual)}</button>
         ) : (
           <button className="btn primario" disabled={criando || iniciando || (rede?.papel === 'principal' && (totalDestino === null || !rede.pcs?.some((pc) => pc.id === pcDestino && pc.conectado))) || !o.nomeBase.trim() || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida} onClick={async () => {
              const opcoes = { ...o, porcentagens: porc, tempoAberto: tempo, recarregar: f5, cookies: o.cookies ?? 'aceitar', aoAcabar: o.aoAcabar ?? 'reabrir' }
