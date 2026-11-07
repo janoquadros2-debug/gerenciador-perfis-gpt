@@ -507,13 +507,13 @@ const rede = new RedeCentral({
 })
 
 Object.assign(acoes, {
-  // uso do computador ao vivo: deste PC e, se estiver ligado, do outro
+  // Monitora simultaneamente este PC e todos os secundários cadastrados.
+  // Mantém os campos antigos para compatibilidade com telas que ainda os utilizem.
   hardwareLocal: () => lerHardware(),
   hardwareTodos: async () => {
-    const este = await lerHardware()
-    let outro = null
-    if (rede.conectado) outro = await rede.chamar('hardwareLocal', [], 5000).catch(() => null)
-    return { este, outro, papel: rede.status.papel }
+    const [este, remotos] = await Promise.all([lerHardware(), rede.hardwareRemotos()])
+    const outro = remotos.find((pc) => pc.ativo)?.dados ?? null
+    return { este, outro, remotos, papel: rede.status.papel }
   },
 
   // galeria (fica neste PC)
