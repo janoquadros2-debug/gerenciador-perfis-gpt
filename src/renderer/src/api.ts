@@ -59,7 +59,7 @@ export function useRede(): StatusRede | null {
       setSt(s)
     })
     return ouvir('rede', (s: StatusRede) => {
-      if (anterior && (anterior.papel !== s.papel || (s.papel === 'principal' && anterior.conectado !== s.conectado))) {
+      if (anterior && (anterior.papel !== s.papel || (s.papel === 'principal' && (anterior.conectado !== s.conectado || anterior.alvoAtivoId !== s.alvoAtivoId)))) {
         location.reload()
         return
       }
