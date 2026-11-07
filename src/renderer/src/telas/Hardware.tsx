@@ -1,11 +1,12 @@
-// Uso do computador ao vivo (CPU, RAM, placa de vídeo e temperaturas) deste PC e do PC secundário.
+// Uso do computador ao vivo (CPU, RAM, GPU e temperaturas) dos três computadores.
 import { useEffect, useState } from 'react'
-import type { UsoHardware } from '../../../shared/types'
+import type { UsoHardware, LeituraHardwareRemoto } from '../../../shared/types'
 import { chamar } from '../api'
 
 interface Leitura {
   este: UsoHardware
-  outro: UsoHardware | null
+  outro: UsoHardware | null // legado
+  remotos?: LeituraHardwareRemoto[]
   papel: 'unico' | 'principal' | 'secundario'
 }
 
@@ -57,6 +58,30 @@ function Cartao({ titulo, u }: { titulo: string; u: UsoHardware }) {
   )
 }
 
+function CartaoRemoto({ pc, indice }: { pc: LeituraHardwareRemoto; indice: number }) {
+  const titulo = pc.apelido?.trim() || `PC secundário ${indice + 1}`
+  if (pc.dados) {
+    return (
+      <div style={{ minWidth: 0, display: 'grid', gap: 4 }}>
+        <Cartao titulo={titulo + (pc.ativo ? ' (selecionado)' : '')} u={pc.dados} />
+      </div>
+    )
+  }
+  return (
+    <div className="trabalho" style={{ display: 'grid', gap: 10, minWidth: 0, opacity: .86 }}>
+      <div className="linha" style={{ justifyContent: 'space-between', gap: 12 }}>
+        <strong style={{ fontSize: 13 }}>{titulo}{pc.ativo ? ' (selecionado)' : ''}</strong>
+        <span className="selo neutro">{pc.conectado ? 'Sem leitura' : 'Desconectado'}</span>
+      </div>
+      <span className="dica mono">{pc.nome} · {pc.endereco}</span>
+      <span className="dica">{pc.erro || 'Aguardando informações deste computador.'}</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
+        <Medidor rotulo="CPU" /><Medidor rotulo="RAM" /><Medidor rotulo="GPU" />
+      </div>
+    </div>
+  )
+}
+
 export function PainelHardware() {
   const [l, setL] = useState<Leitura | null>(null)
   useEffect(() => {
@@ -83,10 +108,13 @@ export function PainelHardware() {
   }, [])
   if (!l) return null
   const nomeEste = l.papel === 'principal' ? 'Este PC (principal)' : l.papel === 'secundario' ? 'Este PC (secundário)' : 'Este PC'
+  const remotos = l.remotos ?? []
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: l.outro ? 'repeat(auto-fit, minmax(380px, 1fr))' : '1fr', gap: 12 }}>
-      {l.outro && <Cartao titulo="PC secundário" u={l.outro} />}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 12 }}>
       <Cartao titulo={nomeEste} u={l.este} />
+      {remotos.length > 0
+        ? remotos.map((pc, i) => <CartaoRemoto key={pc.id} pc={pc} indice={i} />)
+        : l.outro && <Cartao titulo="PC secundário" u={l.outro} />}
     </div>
   )
 }
