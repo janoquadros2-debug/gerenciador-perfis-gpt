@@ -29,7 +29,7 @@ export function meusIps(): string[] {
   return ips
 }
 
-interface Opcoes {
+export interface Opcoes {
   versao: string
   edicao: 'completa' | 'padrao'
   executar: (nome: string, args: unknown[]) => Promise<unknown> // roda uma ação neste PC
