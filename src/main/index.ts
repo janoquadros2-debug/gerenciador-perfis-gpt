@@ -59,6 +59,16 @@ async function guardarResultado(t: TrabalhoIA, buscar: (nome: string, args: unkn
   }
 }
 
+// Acompanhar operações simultâneas independentemente do PC exibido na interface.
+type CriacaoRemota = { pcId: string; pcNome: string; progresso: ProgressoCriacao; iniciadoEm: number }
+const criacoesRemotas = new Map<string, CriacaoRemota>()
+function atualizarCriacaoRemota(pcId: string, progresso: ProgressoCriacao) {
+  const item = criacoesRemotas.get(pcId)
+  if (!item) return
+  item.progresso = progresso
+  enviarTela('criacoes-remotas', [...criacoesRemotas.values()])
+}
+
 // Logs que vêm do outro PC ganham outro número para não se misturarem com os daqui.
 const ID_REMOTO = 1_000_000_000
 const marcarRemotos = (l: EntradaLog[]) => l.map((e) => ({ ...e, id: e.id + ID_REMOTO, origem: e.origem }))
@@ -457,6 +467,7 @@ async function adicionarNovos(n: number) {
 const LOCAIS = new Set([
   'versao', 'edicao', 'estadoAtualizacao', 'verificarAtualizacao', 'atualizarAgora', 'estadoAtualizacaoOutro', 'atualizarOutroPc',
   'rede', 'salvarRede', 'procurarPcs', 'novoCodigo', 'salvarPcRemoto', 'removerPcRemoto', 'selecionarPcDestino',
+  'iniciarCriacaoNoPc', 'criacoesEmMassaEmAndamento',
   'sugestoes', 'adicionarSugestao', 'apagarSugestao', 'abrirPastaLogs',
   'exportarBackupLocal',
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
@@ -494,6 +505,11 @@ const rede = new RedeCentral({
   executar: executarLocal,
   aoMudarStatus: (s) => enviarTela('rede', s),
   aoEvento: (canal, dado) => {
+    if (canal === 'progresso-criacao-destino') {
+      const r = dado as { pcId: string; progresso: ProgressoCriacao }
+      atualizarCriacaoRemota(r.pcId, r.progresso)
+      return
+    }
     // a atualização do secundário NÃO pode aparecer como se fosse a deste PC (era o "bug" de só atualizar depois do secundário)
     if (canal === 'atualizacao') return enviarTela('atualizacao-outro', dado)
     if (canal === 'suno-status' || canal === 'suno-pedido') return
@@ -507,6 +523,28 @@ const rede = new RedeCentral({
 })
 
 Object.assign(acoes, {
+  // Inicio de lote nao bloqueante, atrelado diretamente ao PC indicado.
+  // Não altera o destino selecionado no Ao vivo/Janelas e permite dois lotes em paralelo.
+  criacoesEmMassaEmAndamento: () => [...criacoesRemotas.values()],
+  iniciarCriacaoNoPc: (pcId: string, o: OpcoesCriacaoMassa) => {
+    if (rede.papel !== 'principal') throw new Error('Escolha de PC disponível apenas no modo principal.')
+    const pc = rede.status.pcs?.find((x) => x.id === pcId)
+    if (!pc?.conectado) throw new Error('O computador selecionado está desconectado.')
+    if (criacoesRemotas.get(pcId) && !criacoesRemotas.get(pcId)!.progresso.terminou)
+      throw new Error('Já existe uma criação em massa executando neste computador.')
+    const inicial: ProgressoCriacao = { feitos: 0, total: o.quantidade, erros: [], terminou: false }
+    criacoesRemotas.set(pcId, { pcId, pcNome: pc.apelido || pc.nome, progresso: inicial, iniciadoEm: Date.now() })
+    enviarTela('criacoes-remotas', [...criacoesRemotas.values()])
+    // Cada promessa usa a instância fixa do WebSocket do PC escolhido.
+    void rede.chamarNoPc(pcId, 'criarEmMassa', [o]).then((valor) => {
+      atualizarCriacaoRemota(pcId, valor as ProgressoCriacao)
+      logOk('Criação', `Lote concluído em ${pc.apelido || pc.nome}.`)
+    }).catch((e) => {
+      atualizarCriacaoRemota(pcId, { ...inicial, terminou: true, erros: [String(e?.message ?? e)] })
+      logErro('Criação', `Falha no PC ${pc.apelido || pc.nome}: ${String(e?.message ?? e)}`)
+    })
+    return { pcId, iniciado: true }
+  },
   // Monitora simultaneamente este PC e todos os secundários cadastrados.
   // Mantém os campos antigos para compatibilidade com telas que ainda os utilizem.
   hardwareLocal: () => lerHardware(),
