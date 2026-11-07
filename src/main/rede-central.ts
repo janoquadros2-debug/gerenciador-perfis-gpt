@@ -83,6 +83,8 @@ export class RedeCentral {
         this.atualizar()
       },
       aoEvento: (canal, dado) => {
+        // A criação pode continuar num PC que já não é o alvo ativo.
+        if (canal === 'progresso-criacao') this.opcoes.aoEvento('progresso-criacao-destino', { pcId: p.id, progresso: dado })
         if (this.cfg.alvoAtivoId === p.id) this.opcoes.aoEvento(canal, dado)
       },
       log: (nivel, msg) => this.opcoes.log(nivel, `[${p.apelido || p.endereco}] ${msg}`)
@@ -151,6 +153,16 @@ export class RedeCentral {
         return { ...base, conectado: cliente.conectado, erro: String(e instanceof Error ? e.message : e) }
       }
     }))
+  }
+
+  // Encaminha uma operação diretamente ao PC indicado, sem modificar o alvo da interface.
+  // A conexão e o WebSocket ficam vinculados a este destino até a resposta final.
+  chamarNoPc(pcId: string, nome: string, args: unknown[], tempoMaximo?: number): Promise<unknown> {
+    if (this.papel !== 'principal') return Promise.reject(new Error('Disponível apenas no PC principal.'))
+    const item = this.remotos.get(pcId)
+    if (!item) return Promise.reject(new Error('PC escolhido não está cadastrado.'))
+    if (!item.cliente.conectado) return Promise.reject(new Error('PC escolhido não está conectado.'))
+    return item.cliente.chamar(nome, args, tempoMaximo)
   }
 
   chamar(nome: string, args: unknown[], tempoMaximo?: number): Promise<unknown> {
