@@ -13,7 +13,8 @@ import { carregar, salvarAgora, store } from './store'
 import { iniciarLog, limparLogs, linhaDeTexto, logAviso, logErro, logInfo, logOk, pastaLogs, todosOsLogs } from './log'
 import { sortearDuracao, sortearSistemas } from '../shared/sorteio'
 import { EDICAO } from '../shared/edicao'
-import { novoCodigo, procurarNaRede, Rede } from './rede'
+import { novoCodigo, procurarNaRede } from './rede'
+import { RedeCentral } from './rede-central'
 import * as galeria from './ia/galeria'
 import { acoesSuno } from './suno'
 import { lerHardware } from './hardware'
@@ -455,7 +456,7 @@ async function adicionarNovos(n: number) {
 // Ações que sempre rodam NESTE PC, mesmo no modo Principal.
 const LOCAIS = new Set([
   'versao', 'edicao', 'estadoAtualizacao', 'verificarAtualizacao', 'atualizarAgora', 'estadoAtualizacaoOutro', 'atualizarOutroPc',
-  'rede', 'salvarRede', 'procurarPcs', 'novoCodigo',
+  'rede', 'salvarRede', 'procurarPcs', 'novoCodigo', 'salvarPcRemoto', 'removerPcRemoto', 'selecionarPcDestino',
   'sugestoes', 'adicionarSugestao', 'apagarSugestao', 'abrirPastaLogs',
   'exportarBackupLocal',
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
@@ -487,7 +488,7 @@ ipcMain.handle('chamar', async (_e, nome: string, ...args: unknown[]) => {
 })
 
 // ---------- dois PCs ----------
-const rede = new Rede({
+const rede = new RedeCentral({
   versao: app.getVersion(),
   edicao: EDICAO,
   executar: executarLocal,
@@ -525,9 +526,31 @@ Object.assign(acoes, {
   edicao: () => EDICAO,
   rede: () => rede.status,
   salvarRede: (parcial: Partial<ConfigRede>) => {
-    store.rede = { ...store.rede, ...parcial }
-    rede.aplicar(store.rede)
+    const atual = rede.config
+    const nova = { ...atual, ...parcial }
+    // Mantém o formulário legado de ligação funcionando sem apagar os outros PCs.
+    if (nova.papel === 'principal' && parcial.endereco && parcial.codigo && (nova.remotos?.length ?? 0) > 0) {
+      const id = nova.alvoAtivoId ?? nova.remotos![0].id
+      nova.remotos = nova.remotos!.map((p) => p.id === id ? { ...p, endereco: parcial.endereco!, codigo: parcial.codigo! } : p)
+    }
+    store.rede = nova
+    rede.aplicar(nova)
     return rede.status
+  },
+  salvarPcRemoto: (info: import('../shared/types').PcRemotoConfig) => {
+    const s = rede.salvarRemoto(info)
+    store.rede = rede.config
+    return s
+  },
+  removerPcRemoto: (id: string) => {
+    const s = rede.removerRemoto(id)
+    store.rede = rede.config
+    return s
+  },
+  selecionarPcDestino: (id: string) => {
+    const s = rede.selecionarAlvo(id)
+    store.rede = rede.config
+    return s
   },
   procurarPcs: () => procurarNaRede(),
   novoCodigo: () => {
