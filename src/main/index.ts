@@ -540,7 +540,7 @@ Object.assign(acoes, {
     criacoesRemotas.set(pcId, { pcId, pcNome: pc.apelido || pc.nome, progresso: inicial, iniciadoEm: Date.now() })
     enviarTela('criacoes-remotas', [...criacoesRemotas.values()])
     // Cada promessa usa a instância fixa do WebSocket do PC escolhido.
-    void rede.chamarNoPc(pcId, 'criarEmMassa', [o]).then((valor) => {
+    void rede.chamarNoPc(pcId, 'criarEmMassa', [o], 2 * 60 * 60_000).then((valor) => {
       atualizarCriacaoRemota(pcId, valor as ProgressoCriacao)
       logOk('Criação', `Lote concluído em ${pc.apelido || pc.nome}.`)
     }).catch((e) => {
