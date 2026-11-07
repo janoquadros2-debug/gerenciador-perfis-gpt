@@ -398,6 +398,18 @@ export interface UsoHardware {
   quando: number
 }
 
+// Dados do monitoramento independente de cada PC remoto, inclusive quando está offline.
+export interface LeituraHardwareRemoto {
+  id: string
+  apelido?: string
+  endereco: string
+  nome: string
+  ativo: boolean // PC selecionado para receber comandos; não afeta a leitura dos demais
+  conectado: boolean
+  dados?: UsoHardware
+  erro?: string
+}
+
 // Gerador de prompt (português → inglês)
 export interface ConfigPrompt {
   motor: 'local' | 'claude'
