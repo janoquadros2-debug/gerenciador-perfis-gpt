@@ -3,6 +3,7 @@ import { LARGURA_MINIMA, posicaoNaGrade } from '../../../shared/grade'
 import type { ConfigJanelas, Monitor } from '../../../shared/types'
 import { chamar, useConfig } from '../api'
 import { Chave } from '../componentes'
+import { SeletorPc } from '../componentes/SeletorPc'
 
 export function Janelas() {
   const [cfg, salvar] = useConfig()
@@ -69,6 +70,7 @@ export function Janelas() {
         </div>
       </div>
 
+      <SeletorPc titulo="Configurar janelas do computador" />
       <div className="painel">
         <div className="campo">
           Grade por monitor (colunas × linhas): clique e o tamanho das janelas é calculado sozinho
