@@ -467,7 +467,7 @@ async function adicionarNovos(n: number) {
 const LOCAIS = new Set([
   'versao', 'edicao', 'estadoAtualizacao', 'verificarAtualizacao', 'atualizarAgora', 'estadoAtualizacaoOutro', 'atualizarOutroPc',
   'rede', 'salvarRede', 'procurarPcs', 'novoCodigo', 'salvarPcRemoto', 'removerPcRemoto', 'selecionarPcDestino',
-  'iniciarCriacaoNoPc', 'criacoesEmMassaEmAndamento',
+  'iniciarCriacaoNoPc', 'criacoesEmMassaEmAndamento', 'quantidadePerfisNoPc',
   'sugestoes', 'adicionarSugestao', 'apagarSugestao', 'abrirPastaLogs',
   'exportarBackupLocal',
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
@@ -526,6 +526,10 @@ Object.assign(acoes, {
   // Inicio de lote nao bloqueante, atrelado diretamente ao PC indicado.
   // Não altera o destino selecionado no Ao vivo/Janelas e permite dois lotes em paralelo.
   criacoesEmMassaEmAndamento: () => [...criacoesRemotas.values()],
+  quantidadePerfisNoPc: async (pcId: string) => {
+    const perfis = await rede.chamarNoPc(pcId, 'listarPerfis', [], 30_000) as { id: number }[]
+    return perfis.length
+  },
   iniciarCriacaoNoPc: (pcId: string, o: OpcoesCriacaoMassa) => {
     if (rede.papel !== 'principal') throw new Error('Escolha de PC disponível apenas no modo principal.')
     const pc = rede.status.pcs?.find((x) => x.id === pcId)
