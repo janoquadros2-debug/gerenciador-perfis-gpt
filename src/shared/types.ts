@@ -241,20 +241,40 @@ export interface EntradaLog {
   repeticoes?: number
 }
 
-// ---------- dois PCs ----------
+// ---------- central com até dois PCs remotos (três máquinas no total) ----------
 export type PapelPc = 'unico' | 'principal' | 'secundario'
+
+export interface PcRemotoConfig {
+  id: string // identificador estável; não é o IP para permitir renomear depois
+  endereco: string
+  codigo: string // pareamento deste destino, nunca exposto na tela de status
+  apelido?: string
+}
+
+export interface PcRemotoStatus {
+  id: string
+  endereco: string
+  apelido?: string
+  nome: string
+  versao?: string
+  conectado: boolean
+  conectando: boolean
+  erro?: string
+}
 
 export interface ConfigRede {
   papel: PapelPc
-  endereco: string // principal: IP do PC secundário
-  codigo: string // principal: código de pareamento digitado
-  meuCodigo: string // secundário: código que o principal precisa digitar
+  endereco: string // legado: IP do primeiro secundário; mantido para compatibilidade
+  codigo: string // legado: código do primeiro secundário
+  meuCodigo: string
+  remotos?: PcRemotoConfig[]
+  alvoAtivoId?: string
 }
 
 export interface StatusRede {
   edicao: 'completa' | 'padrao'
   papel: PapelPc
-  conectado: boolean // principal: ligado ao secundário · secundário: algum principal ligado
+  conectado: boolean // conexão do alvo selecionado no principal
   conectando: boolean
   nomeOutroPc?: string
   versaoOutroPc?: string
@@ -263,6 +283,8 @@ export interface StatusRede {
   meuNome: string
   meuCodigo?: string
   erro?: string
+  alvoAtivoId?: string
+  pcs?: PcRemotoStatus[]
 }
 
 export interface PcEncontrado {
