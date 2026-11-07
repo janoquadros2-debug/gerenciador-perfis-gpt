@@ -286,7 +286,12 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
     quantidade: 10, nomeBase: 'Teste', comecarDe: 1, modoProxy: 'nenhum', tipoProxy: 'http', etiqueta: 'Testes', sistema: 'windows', listaProxies: '', proxyUnico: '', site: ''
   })
   const [prog, setProg] = useState<ProgressoCriacao | null>(null)
-  useEffect(() => ouvir('progresso-criacao', setProg), [])
+  // No principal, eventos de outro PC não devem travar este formulário.
+  // Cada criação remota é acompanhada pelo painel separado acima.
+  useEffect(() => {
+    if (rede?.papel === 'principal') return
+    return ouvir('progresso-criacao', setProg)
+  }, [rede?.papel])
   const muda = (p: Partial<OpcoesCriacaoMassa>) => setO({ ...o, ...p })
 
   const totalAtual = rede?.papel === 'principal' ? (totalDestino ?? 0) : total
