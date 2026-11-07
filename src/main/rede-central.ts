@@ -2,7 +2,7 @@
 // Apenas o PC escolhido recebe ações e alimenta a tela principal.
 import os from 'node:os'
 import { Rede, meusIps, type Opcoes } from './rede'
-import type { ConfigRede, PcRemotoConfig, PcRemotoStatus, StatusRede } from '../shared/types'
+import type { ConfigRede, PcRemotoConfig, PcRemotoStatus, StatusRede, UsoHardware, LeituraHardwareRemoto } from '../shared/types'
 
 export class RedeCentral {
   private cfg: ConfigRede = { papel: 'unico', endereco: '', codigo: '', meuCodigo: '' }
@@ -127,6 +127,30 @@ export class RedeCentral {
     this.cfg.codigo = ''
     this.atualizar()
     return this.status
+  }
+
+  // Coleta telemetria sem alterar o PC que recebe comandos. Um remoto indisponível
+  // não bloqueia a leitura dos demais, e o estado offline permanece visível.
+  async hardwareRemotos(): Promise<LeituraHardwareRemoto[]> {
+    if (this.papel !== 'principal') return []
+    const remotos = [...this.remotos.values()]
+    return Promise.all(remotos.map(async ({ config, status, cliente }): Promise<LeituraHardwareRemoto> => {
+      const base = {
+        id: config.id,
+        apelido: config.apelido,
+        endereco: config.endereco,
+        nome: status.nomeOutroPc ?? config.apelido ?? config.endereco,
+        ativo: config.id === this.cfg.alvoAtivoId,
+        conectado: cliente.conectado
+      }
+      if (!cliente.conectado) return { ...base, erro: status.erro || 'PC desconectado' }
+      try {
+        const dados = await cliente.chamar('hardwareLocal', [], 5000) as UsoHardware
+        return { ...base, nome: dados.nome || base.nome, conectado: true, dados }
+      } catch (e) {
+        return { ...base, conectado: cliente.conectado, erro: String(e instanceof Error ? e.message : e) }
+      }
+    }))
   }
 
   chamar(nome: string, args: unknown[], tempoMaximo?: number): Promise<unknown> {
