@@ -4,6 +4,7 @@ import { chamar, useConfig } from '../api'
 import { confirmar } from '../confirmar'
 import { Icone, Modal } from '../componentes'
 import { PainelHardware } from './Hardware'
+import { SeletorPc } from '../componentes/SeletorPc'
 
 // Lê "3, 7, 12" ou "10-15" e devolve a lista de números.
 function lerNumeros(texto: string): number[] {
@@ -74,6 +75,7 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
         </div>
       </div>
 
+      <SeletorPc titulo="Ao vivo — escolher computador" />
       <div className="painel">
         <strong>Central de saúde dos navegadores</strong>
         <span className="dica">Diagnóstico passivo dos sites: confirma reprodução pelo avanço do vídeo. O botão de Play automático abre um player de demonstração gerado localmente, com apenas um perfil, sem reproduzir lives externas.</span>
