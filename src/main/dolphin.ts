@@ -282,9 +282,9 @@ export async function trocarProxyDoPerfil(id: number, proxy: Proxy | null) {
 export async function abrirNavegador(id: number): Promise<{ porta: number; ws: string }> {
   await loginLocal()
   let r: any
-  // Perfil recém-criado: o Dolphin deste PC às vezes ainda não "baixou" ele ("basic browser profile not found"),
-  // mas abre o navegador mesmo assim, sem deixar o programa controlar. Então: fecha o que abriu pela metade,
-  // espera alguns segundos e tenta de novo.
+  // Algumas inicializações retornam NoSuchKey ("Not detected NoSuchKey - server problem").
+  // O Dolphin pode deixar a tentativa parcialmente registrada, sem janela aberta.
+  // Repetimos apenas falhas conhecidas, com limite, sem apagar nem recriar o perfil.
   for (let t = 1; ; t++) {
     try {
       r = await localApi(`/v1.0/browser_profiles/${id}/start?automation=1`)
@@ -293,9 +293,25 @@ export async function abrirNavegador(id: number): Promise<{ porta: number; ws: s
       const msg = String(e?.message ?? e)
       const naoAchou = /not found|não encontrado/i.test(msg)
       const jaAberto = /already|is running|running/i.test(msg)
-      if ((!naoAchou && !jaAberto) || t >= 6) throw e
-      await localApi(`/v1.0/browser_profiles/${id}/stop`).catch(() => undefined)
-      await new Promise((ok) => setTimeout(ok, naoAchou ? 3000 * t : 2500))
+      const falhaChave = /NoSuchKey|not detected.{0,80}server problem/i.test(msg)
+      const recuperavel = naoAchou || jaAberto || falhaChave
+      // Erros de chave/servidor: no máximo quatro tentativas no total.
+      // Os "not found"/"already running" seguem com o limite antigo de seis.
+      const maximo = falhaChave ? 4 : 6
+      if (!recuperavel || t >= maximo) {
+        if (falhaChave) {
+          logAviso('Dolphin', `Perfil #${id}: erro NoSuchKey persistiu após ${t} tentativa(s). Confira o log e o estado do perfil no Dolphin.`)
+        }
+        throw e
+      }
+
+      const esperaMs = falhaChave ? Math.min(9000, 2500 * t) : naoAchou ? 3000 * t : 2500
+      logAviso('Dolphin', `Perfil #${id}: falha temporária na inicialização (${falhaChave ? 'NoSuchKey' : naoAchou ? 'perfil ainda não sincronizado' : 'perfil já em execução'}). Tentando recuperar (${t + 1}/${maximo})…`)
+      // Equivale a "Fechar" antes de tentar abrir outra vez. Não exclui o perfil.
+      await localApi(`/v1.0/browser_profiles/${id}/stop`).catch((erro) =>
+        logAviso('Dolphin', `Perfil #${id}: tentativa de encerramento retornou ${String(erro?.message ?? erro).slice(0, 160)}.`)
+      )
+      await new Promise((ok) => setTimeout(ok, esperaMs))
     }
   }
   const porta = Number(r.automation?.port)
