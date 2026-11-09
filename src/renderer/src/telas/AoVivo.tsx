@@ -32,6 +32,10 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
   const [editarEspera, setEditarEspera] = useState<number | null>(null)
   const [novaEspera, setNovaEspera] = useState('3')
   const [erroCiclo, setErroCiclo] = useState('')
+  const [mostrarTrocaSite, setMostrarTrocaSite] = useState(false)
+  const [novoSite, setNovoSite] = useState('')
+  const [trocandoSite, setTrocandoSite] = useState(false)
+  const [erroTrocaSite, setErroTrocaSite] = useState('')
 
   const navs = estado?.navegadores ?? []
   // relógio de 1 em 1 segundo para a contagem regressiva
@@ -71,6 +75,10 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
             finally {setTestandoPlay(false)}
           }}>{testandoPlay ? 'Testando Play…' : 'Testar Play automático (local)'}</button>
           <button className="btn primario" disabled={!navs.length} onClick={() => setCronometros({ slots: navs.map((n) => n.slot), nome: 'todos os perfis abertos' })}>F5 / Fechamento em todos</button>
+          <button className="btn" disabled={!navs.length && !(estado?.ciclosEmEspera?.length)}
+            onClick={() => { setMostrarTrocaSite(true); setErroTrocaSite('') }}>
+            Fechar e reabrir em outro site
+          </button>
           <button className="btn perigo" disabled={!navs.length} onClick={async () => (await confirmar('Fechar todos os navegadores?', { perigo: true })) && chamar('encerrarTodos')}>Fechar todos</button>
         </div>
       </div>
@@ -196,6 +204,37 @@ export function AoVivo({ estado }: { estado: EstadoMotor | null }) {
         </div>
       )}
 
+      {mostrarTrocaSite && (
+        <Modal titulo="Fechar e reabrir em outro site" sub="Reutiliza os mesmos perfis e proxies do computador selecionado, sem excluir nenhum cadastro do Dolphin." aoFechar={() => !trocandoSite && setMostrarTrocaSite(false)}>
+          <div className="campo">
+            Nova página para todos os perfis deste PC
+            <input type="url" className="solto" value={novoSite}
+              placeholder="https://exemplo.com"
+              onChange={(e) => setNovoSite(e.target.value)} />
+            <span className="dica">Os navegadores serão fechados e reabertos na nova página. O proxy individual, os cookies e os perfis existentes serão preservados.</span>
+          </div>
+          <div className="aviso">
+            A troca será aplicada somente ao PC selecionado. Se houver perfis ainda abrindo, aguarde a fila terminar. Os outros PCs não serão afetados.
+          </div>
+          {erroTrocaSite && <div className="aviso" style={{ color: '#ffb3c1' }}>{erroTrocaSite}</div>}
+          <div className="linha" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn" disabled={trocandoSite} onClick={() => setMostrarTrocaSite(false)}>Cancelar</button>
+            <button className="btn primario" disabled={trocandoSite || !novoSite.trim()} onClick={async () => {
+              setTrocandoSite(true)
+              setErroTrocaSite('')
+              try {
+                const resultado = await chamar<{ quantidade: number; site: string }>('reabrirTodosEmNovoSite', novoSite.trim())
+                setMostrarTrocaSite(false)
+                await confirmar(`${resultado.quantidade} perfil(is) preservado(s) e colocado(s) na fila para abrir em ${resultado.site}. Nenhum proxy foi trocado.`)
+              } catch (e) {
+                setErroTrocaSite(String(e instanceof Error ? e.message : e))
+              } finally {
+                setTrocandoSite(false)
+              }
+            }}>{trocandoSite ? 'Fechando e preparando…' : 'Fechar e reabrir'}</button>
+          </div>
+        </Modal>
+      )}
       {ampliado && <Ampliado n={ampliado} aoFechar={() => setAmpliado(null)} />}
       {trocando && <Substituir slots={trocando} aoFechar={() => { setTrocando(null); setNumeros('') }} />}
       {cronometros && <ProgramarCronometros slots={cronometros.slots} nome={cronometros.nome} aoFechar={() => setCronometros(null)} />}
