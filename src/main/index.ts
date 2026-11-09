@@ -263,6 +263,7 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   recarregarComErro: () => motor.recarregarComErro(),
   encerrar: (slots: number[]) => motor.encerrar(slots),
   encerrarTodos: () => motor.encerrarTodos(),
+  reabrirTodosEmNovoSite: (url: string) => motor.reabrirTodosEmNovoSite(url),
   substituir: (slot: number, opcoes: Parameters<Motor['substituir']>[1]) => motor.substituir(slot, opcoes),
   substituirTodosComErro: () => motor.substituirTodosComErro(),
   pausar: () => motor.pausar(),
