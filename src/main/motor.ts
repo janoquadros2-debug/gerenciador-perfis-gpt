@@ -78,6 +78,7 @@ export class Motor extends EventEmitter {
   private proximaAbertura = 0
   private timerFila?: NodeJS.Timeout
   private concluidosNoLote = 0
+  private trocandoSite = false
   private pausado = false
   private avisos: string[] = []
   private proxiesEsgotados = false
@@ -162,7 +163,7 @@ export class Motor extends EventEmitter {
 
   // Fecha os navegadores cujo tempo acabou (com o programa pausado, espera retomar).
   private verificarTempos() {
-    if (this.pausado) return
+    if (this.pausado || this.trocandoSite) return
     const agora = Date.now()
     // O agendamento do F5 não depende do status da página após erro HTTP/timeout.
     for (const s of this.sessoes.values()) {
@@ -206,6 +207,7 @@ export class Motor extends EventEmitter {
     perfis: Perfil[],
     opcoes: { manterProxy?: boolean; duracaoMs?: number; recarregar?: TempoAberto; cookies?: ModoCookies; tempoAberto?: TempoAberto; aoAcabar?: 'fechar' | 'reabrir'; tempoFechadoMinutos?: number; tempoFechado?: TempoAberto } = {}
   ) {
+    if (this.trocandoSite) throw new Error('Aguarde o fechamento para trocar o site dos navegadores.')
     const ocupados = new Set([...this.sessoes.values()].map((s) => s.perfil.id).concat(this.fila.map((f) => f.perfil.id), [...this.ciclosEmEspera.values()].map((c) => c.item.perfil.id)))
     const recarregar = opcoes.recarregar && opcoes.recarregar.modo !== 'sem-limite' ? opcoes.recarregar : undefined
     for (const p of perfis) if (!ocupados.has(p.id)) this.fila.push({
@@ -240,6 +242,7 @@ export class Motor extends EventEmitter {
   }
 
   private async processarFila() {
+    if (this.trocandoSite) return
     const cfgInicial = store.config
     const limite = Math.max(1, Math.min(LIMITE_ABERTURA, Math.round(cfgInicial.aberturasSimultaneas ?? 2)))
     const intervalo = Math.max(0, Math.min(15000, cfgInicial.intervaloEntreAberturasMs ?? 1500))
@@ -702,6 +705,78 @@ export class Motor extends EventEmitter {
     for (const slot of this.ciclosEmEspera.keys()) this.cancelarEsperaInterna(slot)
     this.fila = []
     await this.encerrar([...this.sessoes.keys()])
+  }
+
+  /**
+   * Fecha e abre novamente os mesmos perfis ativos (inclusive os que aguardam reabertura)
+   * em outro site, SEM trocar seus proxies nem recriar os cadastros no Dolphin.
+   * Preserva cronômetros/F5/cookies e usa a fila normal para evitar sobrecarga.
+   */
+  async reabrirTodosEmNovoSite(endereco: string): Promise<{ quantidade: number; site: string }> {
+    if (this.trocandoSite) throw new Error('Já existe uma troca de site em andamento.')
+    if (this.pausado) throw new Error('Retome o programa antes de trocar o site.')
+    if (this.abrindoAgora > 0 || this.fila.length > 0 || [...this.sessoes.values()].some((s) => s.fechando || s.info.status === 'abrindo'))
+      throw new Error('Aguarde a fila de aberturas e os fechamentos atuais terminarem antes de trocar o site.')
+
+    const texto = String(endereco ?? '').trim()
+    if (!texto || texto.length > 2048) throw new Error('Informe um endereço de site válido (até 2048 caracteres).')
+    let site: string
+    try {
+      const url = new URL(normalizarSite(texto))
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password)
+        throw new Error('Endereço não permitido.')
+      site = url.href
+    } catch {
+      throw new Error('Informe uma URL HTTP ou HTTPS válida, por exemplo https://exemplo.com.')
+    }
+
+    // Snapshot antes de encerrar. Inclui perfis atualmente aguardando o próximo ciclo.
+    // Nenhum item recebe proxy novo: a configuração existente continua no Dolphin.
+    const itens: ItemFila[] = [...this.sessoes.values()].map((s) => ({
+      perfil: s.perfil,
+      slot: s.info.slot,
+      manterProxy: true,
+      duracaoMs: s.tempoAberto ? sortearDuracao(s.tempoAberto)
+        : s.info.fechaEm ? Math.max(1000, s.info.fechaEm - s.info.abertoEm) : undefined,
+      recarregar: s.recarregar,
+      cookies: s.cookies,
+      tempoAberto: s.tempoAberto,
+      aoAcabar: s.aoAcabar,
+      tempoFechadoMinutos: s.tempoFechadoMinutos,
+      tempoFechado: s.tempoFechado
+    }))
+    for (const [slot, ciclo] of this.ciclosEmEspera) {
+      itens.push({
+        ...ciclo.item,
+        slot,
+        manterProxy: true,
+        fechaEm: undefined,
+        duracaoMs: ciclo.item.tempoAberto ? sortearDuracao(ciclo.item.tempoAberto) : ciclo.item.duracaoMs
+      })
+    }
+    itens.sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
+    const unicos = itens.filter((item, i) => itens.findIndex((x) => x.perfil.id === item.perfil.id) === i)
+    if (!unicos.length) throw new Error('Nenhum navegador ativo ou aguardando reabertura neste PC.')
+
+    this.trocandoSite = true
+    logInfo('Ao vivo', `Fechando ${unicos.length} navegador(es) para reabrir em ${site}, preservando os perfis e proxies.`)
+    try {
+      await this.encerrarTodos()
+      for (const item of unicos) {
+        store.setSite(item.perfil.id, site)
+        item.perfil.site = site
+        const cadastro = this.perfis.find((p) => p.id === item.perfil.id)
+        if (cadastro) cadastro.site = site
+      }
+      this.fila.push(...unicos)
+      logOk('Ao vivo', `${unicos.length} perfis preservados e colocados na fila de abertura para ${site}. Proxies mantidos.`)
+      this.avisarMudanca()
+      return { quantidade: unicos.length, site }
+    } finally {
+      this.trocandoSite = false
+      this.processarFila()
+      this.avisarMudanca()
+    }
   }
 
   /**
