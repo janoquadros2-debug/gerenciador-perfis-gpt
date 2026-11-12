@@ -149,6 +149,31 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     const p = motor.perfis.find((x) => x.id === perfilId)
     if (p) p.site = site || undefined
   },
+  alterarSitesEmMassa: async (ids: number[], site: string) => {
+    const url = site.trim()
+    if (!/^https?:\/\/[^\s]+$/i.test(url)) throw new Error('Informe um endereço HTTP ou HTTPS válido.')
+    try {
+      const validada = new URL(url)
+      if (!['http:', 'https:'].includes(validada.protocol) || !validada.hostname.includes('.')) throw new Error()
+    } catch {
+      throw new Error('O link informado não é válido.')
+    }
+    // Reconsulta o Dolphin para evitar editar IDs inexistentes ou de outra conta.
+    const atuais = await dolphin.listarPerfis()
+    motor.perfis = atuais
+    const existentes = new Set(atuais.map((p) => p.id))
+    const unicos = [...new Set(ids)].filter((id) => Number.isSafeInteger(id) && existentes.has(id))
+    if (!unicos.length) throw new Error('Nenhum perfil existente foi selecionado.')
+    for (const id of unicos) {
+      store.setSite(id, url)
+      const p = atuais.find((item) => item.id === id)
+      if (p) p.site = url
+    }
+    // Confirma a persistência antes de anunciar conclusão.
+    salvarAgora()
+    logOk('Perfis', `Link de abertura atualizado em ${unicos.length} perfil(is), sem alterar proxies ou perfis.`)
+    return { alterados: unicos.length, solicitados: ids.length }
+  },
   apagarPerfis: async (ids: number[]) => {
     const erros: string[] = []
     // fecha antes os navegadores desses perfis que estiverem abertos
