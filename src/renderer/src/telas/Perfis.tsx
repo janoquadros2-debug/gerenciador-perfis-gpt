@@ -22,6 +22,7 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
   }, [])
   const [editando, setEditando] = useState<Perfil | null>(null)
   const [limpando, setLimpando] = useState(false)
+  const [alterandoLinks, setAlterandoLinks] = useState(false)
 
   const carregar = () => {
     setCarregando(true)
@@ -75,6 +76,7 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
         <div className="linha">
           <input className="solto" type="search" placeholder="Buscar perfil" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar perfil" />
           <button className="btn" onClick={carregar}>Atualizar lista</button>
+          <button className="btn" disabled={!perfis.length} onClick={() => setAlterandoLinks(true)}>Alterar link em massa</button>
           <button className="btn primario" onClick={() => setCriando(true)}>Criar em massa</button>
         </div>
       </div>
@@ -180,6 +182,7 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
         </div>
       </div>
 
+      {alterandoLinks && <AlterarLinksEmMassa perfis={perfis} selecionados={[...selecionados]} aoFechar={() => { setAlterandoLinks(false); carregar() }} />}
       {criando && <CriarEmMassa total={perfis.length} aoFechar={() => { setCriando(false); carregar() }} />}
       {editando && <EditarPerfil perfil={editando} aoFechar={() => { setEditando(null); carregar() }} />}
       {limpando && (
@@ -191,6 +194,66 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
         />
       )}
     </>
+  )
+}
+
+function AlterarLinksEmMassa({ perfis, selecionados, aoFechar }: { perfis: Perfil[]; selecionados: number[]; aoFechar: () => void }) {
+  const [site, setSite] = useState('')
+  const [escopo, setEscopo] = useState<'todos' | 'selecionados'>(selecionados.length ? 'selecionados' : 'todos')
+  const [salvando, setSalvando] = useState(false)
+  const [resultado, setResultado] = useState('')
+  const [erro, setErro] = useState('')
+  const ids = escopo === 'todos' ? perfis.map((p) => p.id) : selecionados
+  const enderecoValido = (() => {
+    try {
+      const u = new URL(site.trim())
+      return ['http:', 'https:'].includes(u.protocol) && u.hostname.includes('.')
+    } catch { return false }
+  })()
+  const salvar = async () => {
+    if (!enderecoValido || !ids.length || salvando) return
+    const ok = await confirmar(`Alterar o site de abertura de ${ids.length} perfil(is)? Os perfis não serão recriados nem abertos.`)
+    if (!ok) return
+    setSalvando(true)
+    setErro('')
+    try {
+      const resposta = await chamar<{ alterados: number; solicitados: number }>('alterarSitesEmMassa', ids, site.trim())
+      setResultado(`Link salvo em ${resposta.alterados} perfil(is). Será usado na próxima abertura.`)
+    } catch (e) {
+      setErro(String(e instanceof Error ? e.message : e))
+    } finally {
+      setSalvando(false)
+    }
+  }
+  return (
+    <Modal titulo="Alterar link em massa" sub="Atualiza o site de abertura de perfis já existentes, inclusive fechados." aoFechar={() => !salvando && aoFechar()}>
+      <label className="campo">
+        Novo link para abrir
+        <input type="url" placeholder="https://exemplo.com" value={site} disabled={salvando || !!resultado} onChange={(e) => setSite(e.target.value)} />
+      </label>
+      <div className="campo">
+        Aplicar em
+        <div className="escolhas">
+          <label className={`escolha ${escopo === 'todos' ? 'marcada' : ''}`}>
+            <input type="radio" name="escopo-link-massa" checked={escopo === 'todos'} disabled={salvando || !!resultado} onChange={() => setEscopo('todos')} />
+            Todos os perfis deste PC ({perfis.length})
+          </label>
+          {selecionados.length > 0 && (
+            <label className={`escolha ${escopo === 'selecionados' ? 'marcada' : ''}`}>
+              <input type="radio" name="escopo-link-massa" checked={escopo === 'selecionados'} disabled={salvando || !!resultado} onChange={() => setEscopo('selecionados')} />
+              Apenas os {selecionados.length} perfis selecionados
+            </label>
+          )}
+        </div>
+      </div>
+      <div className="aviso">Essa operação não muda proxy, cookies, nome ou fingerprint e não abre os navegadores. No PC principal, ela atua sobre o PC secundário atualmente selecionado.</div>
+      {erro && <div className="aviso" style={{ color: '#ffb3c1' }}>{erro}</div>}
+      {resultado && <div className="aviso">{resultado}</div>}
+      <div className="linha" style={{ justifyContent: 'flex-end' }}>
+        <button className="btn" disabled={salvando} onClick={aoFechar}>{resultado ? 'Fechar' : 'Cancelar'}</button>
+        {!resultado && <button className="btn primario" disabled={!enderecoValido || !ids.length || salvando} onClick={salvar}>{salvando ? 'Salvando…' : `Alterar link de ${ids.length} perfis`}</button>}
+      </div>
+    </Modal>
   )
 }
 
