@@ -3,7 +3,8 @@ import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import type { Configuracoes, OpcoesCriacaoMassa, ProgressoCriacao, Proxy } from '../shared/types'
+import type { CicloProgramado, ConfiguracaoFavorito, EncerramentoCiclo, FavoritoPerfil, Configuracoes, OpcoesCriacaoMassa, ProgressoCriacao, Proxy } from '../shared/types'
+import { configuracaoFavorito, horasCicloValidas, siteFavorito } from '../shared/favoritos'
 import { atualizarAgora, estadoAtualizacao, iniciarAtualizacoes, procurarEInstalar, verificar } from './atualizacao'
 import * as dolphin from './dolphin'
 import { listarMonitores } from './janelas'
@@ -96,6 +97,38 @@ function criarJanela() {
   else janela.loadFile(path.join(__dirname, '../renderer/index.html'))
 }
 
+let cicloProgramado: CicloProgramado | null = null
+let timerCiclo: NodeJS.Timeout | undefined
+let criandoLote = false
+
+function validarEncerramento(ciclo?: EncerramentoCiclo) {
+  if (!ciclo) return
+  if (!horasCicloValidas(ciclo.horas) || !['encerrar-navegadores', 'fechar-programa'].includes(ciclo.acao))
+    throw new Error('Escolha uma ação e informe um tempo entre 1 minuto e 168 horas.')
+}
+
+function programarEncerramento({ horas, acao }: EncerramentoCiclo) {
+  cicloProgramado = { terminaEm: Date.now() + horas * 3_600_000, acao, encerrando: false }
+  timerCiclo = setTimeout(async () => {
+    if (!cicloProgramado) return
+    cicloProgramado.encerrando = true
+    try {
+      await motor.encerrarCiclo()
+      logOk('Ciclo', 'Ciclo encerrado pelo temporizador.')
+      if (acao === 'fechar-programa') {
+        salvarAgora()
+        saindo = true
+        app.quit()
+      }
+    } catch (e) {
+      logErro('Ciclo', String(e instanceof Error ? e.message : e))
+      motor.avisar('Falha ao encerrar o ciclo. Consulte os Logs.')
+    } finally {
+      cicloProgramado = null
+    }
+  }, horas * 3_600_000)
+}
+
 // Todas as funções que a interface pode chamar.
 const acoes: Record<string, (...args: any[]) => unknown> = {
   // configurações
@@ -126,6 +159,31 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     fs.copyFileSync(origem, r.filePath)
     logOk('Backup', 'Configurações do aplicativo exportadas para uma cópia local.')
     return { cancelado: false, caminho: r.filePath }
+  },
+
+  listarFavoritosPerfis: () => store.favoritosPerfis,
+  salvarFavoritoPerfil: (nome: string, site: string, opcoes?: ConfiguracaoFavorito, id?: string) => {
+    const titulo = nome.trim()
+    if (!titulo) throw new Error('Informe o nome do favorito.')
+    const atual = store.favoritosPerfis.find((f) => f.id === id)
+    if (id && !atual) throw new Error('Favorito não encontrado.')
+    validarEncerramento(opcoes?.encerrarCiclo)
+    const favorito: FavoritoPerfil = {
+      id: atual?.id ?? randomUUID(), nome: titulo, site: siteFavorito(site),
+      configuracao: opcoes ? configuracaoFavorito(opcoes) : atual?.configuracao
+    }
+    store.salvarFavoritosPerfis([favorito, ...store.favoritosPerfis.filter((f) => f.id !== favorito.id)])
+    return store.favoritosPerfis
+  },
+  apagarFavoritoPerfil: (id: string) => {
+    store.salvarFavoritosPerfis(store.favoritosPerfis.filter((f) => f.id !== id))
+    return store.favoritosPerfis
+  },
+  cicloProgramado: () => cicloProgramado,
+  cancelarEncerramentoCiclo: () => {
+    if (cicloProgramado?.encerrando) throw new Error('O ciclo já está sendo encerrado.')
+    clearTimeout(timerCiclo)
+    cicloProgramado = null
   },
 
   // Dolphin e perfis
@@ -193,76 +251,19 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     return erros
   },
   criarEmMassa: async (o: OpcoesCriacaoMassa) => {
-    const prog: ProgressoCriacao = { feitos: 0, total: o.quantidade, erros: [], terminou: false }
-    logInfo('Criação', `Criando ${o.quantidade} perfis: ${o.nomeBase} ${o.comecarDe} a ${o.nomeBase} ${o.comecarDe + o.quantidade - 1}${o.abrirAoCriar ? ', abrindo cada um' : ''}.`)
-    // proxies colados aqui também vão para a lista salva (aba Proxies), para o "+1 / Adicionar" continuar dela
-    const lista: Proxy[] =
-      o.modoProxy === 'lista' ? mesclarNaLista(lerLista(o.listaProxies ?? '', o.tipoProxy)) : []
-    store.modeloAdicionar = { ...o, listaProxies: undefined, proxyUnico: undefined }
-    const unico = o.modoProxy === 'mesmo' ? lerLinha(o.proxyUnico ?? '', o.tipoProxy) : null
-    // nomes que já existem são pulados: assim, rodar de novo cria só os que faltaram
-    const jaExistem = await dolphin.listarPerfis().catch(() => motor.perfis)
-    const existentes = new Map(jaExistem.map((p) => [p.nome, p]))
-    let pulados = 0
-    const sistemas =
-      o.sistema === 'sorteado'
-        ? sortearSistemas(o.quantidade, o.porcentagens ?? { windows: 100, macos: 0, linux: 0 })
-        : Array(o.quantidade).fill(o.sistema)
-    for (let i = 0; i < o.quantidade; i++) {
-      const nome = `${o.nomeBase} ${o.comecarDe + i}`
-      const proxy = o.modoProxy === 'lista' && lista.length ? lista[i % lista.length] : unico
-      const existente = existentes.get(nome)
-      if (existente) {
-        // Perfis com nomes existentes reutilizam o cadastro, MAS precisam receber o site
-        // solicitado nesta criação. Antes abriam o URL antigo (geralmente o Google).
-        if (o.site?.trim()) {
-          const site = o.site.trim()
-          store.setSite(existente.id, site)
-          existente.site = site
-        }
-        if (o.site2?.trim()) {
-          const site2 = o.site2.trim()
-          store.setSite2(existente.id, site2)
-          existente.site2 = site2
-        }
-        if (o.abrirAoCriar) motor.abrir([existente], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos, tempoFechado: o.tempoFechado })
-        pulados++
-        prog.feitos = i + 1
-        prog.pulados = pulados
-        enviar('progresso-criacao', { ...prog })
-        continue
-      }
-      try {
-        const id = await dolphin.criarPerfil(nome, { sistema: sistemas[i], etiqueta: o.etiqueta, proxy, privacidade: o.privacidade })
-        if (o.modoProxy === 'lista' && proxy) marcarUsado(proxy)
-        logOk('Criação', `${nome} criado (${sistemas[i]}${proxy ? `, proxy ${proxy.host}:${proxy.porta}` : ', sem proxy'}).`)
-        if (o.site && id) store.setSite(id, o.site)
-        if (o.site2?.trim() && id) store.setSite2(id, o.site2.trim())
-        if (o.abrirAoCriar && id) {
-          const novo = {
-            id,
-            nome,
-            etiquetas: o.etiqueta ? [o.etiqueta] : [],
-            plataforma: sistemas[i],
-            proxyTexto: proxy ? proxyParaTexto(proxy) : undefined,
-            site: o.site || undefined,
-            site2: o.site2?.trim() || undefined
-          }
-          motor.perfis.push(novo)
-          motor.abrir([novo], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos, tempoFechado: o.tempoFechado }) // abre já, enquanto os próximos vão sendo criados
-        }
-      } catch (e: any) {
-        prog.erros.push(`${nome}: ${e.message}`)
-        logErro('Criação', `${nome} não foi criado: ${e.message}`)
-      }
-      prog.feitos = i + 1
-      enviar('progresso-criacao', { ...prog })
+    if (!Number.isInteger(o.quantidade) || o.quantidade < 1 || o.quantidade > LIMITE_PLANO)
+      throw new Error('Informe uma quantidade entre 1 e 100 perfis.')
+    if (criandoLote || cicloProgramado) throw new Error('Aguarde a criação ou o ciclo deste PC terminar. Você pode cancelar o temporizador na tela Perfis.')
+    validarEncerramento(o.encerrarCiclo)
+    criandoLote = true
+    try {
+      const prog = await criarLote(o)
+      if (o.encerrarCiclo && prog.feitos > prog.erros.length) programarEncerramento(o.encerrarCiclo)
+      enviar('progresso-criacao', prog)
+      return prog
+    } finally {
+      criandoLote = false
     }
-    prog.terminou = true
-    enviar('progresso-criacao', { ...prog })
-    logInfo('Criação', `Terminou: ${prog.total - prog.erros.length - (prog.pulados ?? 0)} criados, ${prog.pulados ?? 0} já existiam, ${prog.erros.length} com erro.`)
-    motor.perfis = await dolphin.listarPerfis().catch(() => motor.perfis)
-    return prog
   },
 
   // navegadores
@@ -398,6 +399,97 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   }
 }
 
+async function criarLote(o: OpcoesCriacaoMassa): Promise<ProgressoCriacao> {
+  const prog: ProgressoCriacao = { feitos: 0, total: o.quantidade, erros: [], terminou: false }
+  logInfo('Criação', `Criando ${o.quantidade} perfis: ${o.nomeBase} ${o.comecarDe} a ${o.nomeBase} ${o.comecarDe + o.quantidade - 1}${o.abrirAoCriar ? ', abrindo cada um' : ''}.`)
+  // proxies colados aqui também vão para a lista salva (aba Proxies), para o "+1 / Adicionar" continuar dela
+  const fornecidos = o.modoProxy === 'lista' ? lerLista(o.listaProxies ?? '', o.tipoProxy) : []
+  const unico = o.modoProxy === 'mesmo' ? lerLinha(o.proxyUnico ?? '', o.tipoProxy) : null
+  if (o.atualizarProxyExistente && !fornecidos.length && !unico)
+    throw new Error('Informe os novos proxies antes de atualizar os perfis existentes.')
+  if (typeof o.manterAtivas === 'boolean' && o.manterAtivas !== store.config.manterAtivas)
+    store.setConfig({ manterAtivas: o.manterAtivas })
+  const lista: Proxy[] = fornecidos.length ? mesclarNaLista(fornecidos) : []
+  store.modeloAdicionar = { ...o, listaProxies: undefined, proxyUnico: undefined }
+  // nomes que já existem são pulados: assim, rodar de novo cria só os que faltaram
+  const jaExistem = await dolphin.listarPerfis().catch(() => motor.perfis)
+  const existentes = new Map(jaExistem.map((p) => [p.nome, p]))
+  let pulados = 0
+  const sistemas =
+    o.sistema === 'sorteado'
+      ? sortearSistemas(o.quantidade, o.porcentagens ?? { windows: 100, macos: 0, linux: 0 })
+      : Array(o.quantidade).fill(o.sistema)
+  for (let i = 0; i < o.quantidade; i++) {
+    const nome = `${o.nomeBase} ${o.comecarDe + i}`
+    const proxy = o.modoProxy === 'lista' && lista.length ? lista[i % lista.length] : unico
+    const existente = existentes.get(nome)
+    if (existente) {
+      if (o.atualizarProxyExistente && proxy) {
+        try {
+          if (motor.perfilOcupado(existente.id)) throw new Error('Encerre o ciclo anterior para trocar o proxy.')
+          await dolphin.trocarProxyDoPerfil(existente.id, proxy)
+          existente.proxyTexto = proxyParaTexto(proxy)
+          if (o.modoProxy === 'lista') marcarUsado(proxy)
+        } catch (e) {
+          const mensagem = e instanceof Error ? e.message : String(e)
+          prog.erros.push(`${nome}: ${mensagem}`)
+          logErro('Criação', `Falha ao trocar o proxy de ${nome}: ${mensagem}`)
+          prog.feitos = i + 1
+          enviar('progresso-criacao', { ...prog })
+          continue
+        }
+      }
+      // Perfis com nomes existentes reutilizam o cadastro, MAS precisam receber o site
+      // solicitado nesta criação. Antes abriam o URL antigo (geralmente o Google).
+      if (o.site?.trim()) {
+        const site = o.site.trim()
+        store.setSite(existente.id, site)
+        existente.site = site
+      }
+      if (o.site2 !== undefined) {
+        const site2 = o.site2.trim()
+        store.setSite2(existente.id, site2)
+        existente.site2 = site2 || undefined
+      }
+      if (o.abrirAoCriar) motor.abrir([existente], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos, tempoFechado: o.tempoFechado })
+      pulados++
+      prog.feitos = i + 1
+      prog.pulados = pulados
+      enviar('progresso-criacao', { ...prog })
+      continue
+    }
+    try {
+      const id = await dolphin.criarPerfil(nome, { sistema: sistemas[i], etiqueta: o.etiqueta, proxy, privacidade: o.privacidade })
+      if (o.modoProxy === 'lista' && proxy) marcarUsado(proxy)
+      logOk('Criação', `${nome} criado (${sistemas[i]}${proxy ? `, proxy ${proxy.host}:${proxy.porta}` : ', sem proxy'}).`)
+      if (o.site && id) store.setSite(id, o.site)
+      if (o.site2?.trim() && id) store.setSite2(id, o.site2.trim())
+      if (o.abrirAoCriar && id) {
+        const novo = {
+          id,
+          nome,
+          etiquetas: o.etiqueta ? [o.etiqueta] : [],
+          plataforma: sistemas[i],
+          proxyTexto: proxy ? proxyParaTexto(proxy) : undefined,
+          site: o.site || undefined,
+          site2: o.site2?.trim() || undefined
+        }
+        motor.perfis.push(novo)
+        motor.abrir([novo], { manterProxy: true, tempoAberto: o.tempoAberto, aoAcabar: o.aoAcabar ?? 'reabrir', recarregar: o.recarregar, cookies: o.cookies, tempoFechadoMinutos: o.tempoFechadoMinutos, tempoFechado: o.tempoFechado }) // abre já, enquanto os próximos vão sendo criados
+      }
+    } catch (e: any) {
+      prog.erros.push(`${nome}: ${e.message}`)
+      logErro('Criação', `${nome} não foi criado: ${e.message}`)
+    }
+    prog.feitos = i + 1
+    enviar('progresso-criacao', { ...prog })
+  }
+  prog.terminou = true
+  logInfo('Criação', `Terminou: ${prog.total - prog.erros.length - (prog.pulados ?? 0)} criados, ${prog.pulados ?? 0} já existiam, ${prog.erros.length} com erro.`)
+  motor.perfis = await dolphin.listarPerfis().catch(() => motor.perfis)
+  return prog
+}
+
 // ---------- "+1 / Adicionar": cria perfis novos e já abre ----------
 const LIMITE_PLANO = 100
 let filaAdicionar: Promise<void> = Promise.resolve() // cliques seguidos entram em fila, sem misturar números
@@ -493,7 +585,8 @@ async function adicionarNovos(n: number) {
 const LOCAIS = new Set([
   'versao', 'edicao', 'estadoAtualizacao', 'verificarAtualizacao', 'atualizarAgora', 'estadoAtualizacaoOutro', 'atualizarOutroPc',
   'rede', 'salvarRede', 'procurarPcs', 'novoCodigo', 'salvarPcRemoto', 'removerPcRemoto', 'selecionarPcDestino',
-  'iniciarCriacaoNoPc', 'criacoesEmMassaEmAndamento', 'quantidadePerfisNoPc',
+  'listarFavoritosPerfis', 'salvarFavoritoPerfil', 'apagarFavoritoPerfil',
+  'iniciarCriacaoNoPc', 'criacoesEmMassaEmAndamento', 'nomesPerfisNoPc',
   'sugestoes', 'adicionarSugestao', 'apagarSugestao', 'abrirPastaLogs',
   'exportarBackupLocal',
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
@@ -552,9 +645,9 @@ Object.assign(acoes, {
   // Inicio de lote nao bloqueante, atrelado diretamente ao PC indicado.
   // Não altera o destino selecionado no Ao vivo/Janelas e permite dois lotes em paralelo.
   criacoesEmMassaEmAndamento: () => [...criacoesRemotas.values()],
-  quantidadePerfisNoPc: async (pcId: string) => {
-    const perfis = await rede.chamarNoPc(pcId, 'listarPerfis', [], 30_000) as { id: number }[]
-    return perfis.length
+  nomesPerfisNoPc: async (pcId: string) => {
+    const perfis = await rede.chamarNoPc(pcId, 'listarPerfis', [], 30_000) as { nome: string }[]
+    return perfis.map((p) => p.nome)
   },
   iniciarCriacaoNoPc: (pcId: string, o: OpcoesCriacaoMassa) => {
     if (rede.papel !== 'principal') throw new Error('Escolha de PC disponível apenas no modo principal.')

@@ -2,10 +2,11 @@
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ConfigRede, Configuracoes, FluxoIA, OpcoesCriacaoMassa, Proxy, Sugestao, RegistroOperacao, RecursosExtras } from '../shared/types'
+import type { FavoritoPerfil, ConfigRede, Configuracoes, FluxoIA, OpcoesCriacaoMassa, Proxy, Sugestao, RegistroOperacao, RecursosExtras } from '../shared/types'
 
 interface Dados {
   config: Configuracoes
+  favoritosPerfis?: FavoritoPerfil[]
   operacoes?: RegistroOperacao[]
   historicosPerfis?: Record<number, import('../shared/types').HistoricoPerfil[]>
   proxies: Proxy[]
@@ -222,6 +223,17 @@ export const store = {
   set usadosNaRodada(v: string[]) {
     dados.proxiesUsadosNaRodada = v
     salvar()
+  },
+  get favoritosPerfis() { return dados.favoritosPerfis ?? [] },
+  salvarFavoritosPerfis(lista: FavoritoPerfil[]) {
+    const anteriores = dados.favoritosPerfis
+    dados.favoritosPerfis = lista
+    try {
+      salvarAgora()
+    } catch (e) {
+      dados.favoritosPerfis = anteriores
+      throw e
+    }
   },
   get modeloAdicionar(): OpcoesCriacaoMassa {
     return { ...MODELO_PADRAO, ...(dados.modeloAdicionar ?? {}) }
