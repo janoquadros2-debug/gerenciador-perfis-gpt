@@ -212,7 +212,31 @@ export interface OpcoesCriacaoMassa {
   tempoFechadoMinutos?: number // opcional: espera depois do fechamento, 0 mantém os antigos 3 segundos
   tempoFechado?: TempoAberto // se informado, fixa ou sorteia novo descanso a cada fechamento
   recarregar?: TempoAberto // F5 sozinho: 'sem-limite' = desligado; fixo ou aleatório (ex.: de 3 a 5 min)
+  manterAtivas?: boolean
+  encerrarCiclo?: EncerramentoCiclo
+  atualizarProxyExistente?: boolean
   privacidade?: 'anonimo' | 'padrao' // anonimo = cada perfil com impressão digital única (ruído, hardware, tela, MAC…)
+}
+
+export interface EncerramentoCiclo {
+  horas: number
+  acao: 'encerrar-navegadores' | 'fechar-programa'
+}
+
+export type ConfiguracaoFavorito = Omit<OpcoesCriacaoMassa,
+  'modoProxy' | 'tipoProxy' | 'listaProxies' | 'proxyUnico' | 'site' | 'atualizarProxyExistente'>
+
+export interface FavoritoPerfil {
+  id: string
+  nome: string
+  site: string
+  configuracao?: ConfiguracaoFavorito
+}
+
+export interface CicloProgramado {
+  terminaEm: number
+  acao: EncerramentoCiclo['acao']
+  encerrando: boolean
 }
 
 export interface TempoAberto {

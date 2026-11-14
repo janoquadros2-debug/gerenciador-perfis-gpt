@@ -1,7 +1,7 @@
 {
   "name": "gerenciador-perfis-gpt",
   "productName": "Gerenciador de Perfis GPT",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "description": "Painel para abrir e acompanhar perfis do Dolphin Anty",
   "main": "./out/main/index.js",
   "author": "Gerenciador de Perfis GPT",

@@ -14,7 +14,7 @@ import { JanelaConfirmacao } from './confirmar'
 import { Logs } from './telas/Logs'
 import { Lives } from './telas/Lives'
 
-type Tela = 'perfis' | 'vivo' | 'lives' | 'janelas' | 'proxies' | 'imagens' | 'animar' | 'musica' | 'config' | 'atualizacoes' | 'sugestoes' | 'logs'
+type Tela = 'favoritos' | 'perfis' | 'vivo' | 'lives' | 'janelas' | 'proxies' | 'imagens' | 'animar' | 'musica' | 'config' | 'atualizacoes' | 'sugestoes' | 'logs'
 
 // Abas de IA: só existem na edição Completa (na Padrão nem entram no programa).
 const CriarImagens = __EDICAO__ === 'completa' ? lazy(() => import('./telas/ia/CriarImagens')) : null
@@ -82,6 +82,7 @@ export function App() {
 
   const itens: [Tela, string, ReactNode, ReactNode][] = [
     ['perfis', 'Perfis', Icone.perfis, null],
+    ['favoritos', 'Favoritos', <span aria-hidden="true">☆</span>, null],
     ['vivo', 'Ao vivo', Icone.vivo, navs.length ? <span className={`contador ${comErro ? '' : 'verde'}`} style={comErro ? { background: 'var(--vermelho-borda)' } : undefined}>{comErro ? `${comErro} erro` : navs.length}</span> : null],
     ['lives', 'Lives', Icone.lives, null],
     ['janelas', 'Janelas', Icone.janelas, null],
@@ -189,7 +190,7 @@ export function App() {
           </div>
         )}
 
-        {tela === 'perfis' && <Perfis estado={estado} />}
+        {(tela === 'perfis' || tela === 'favoritos') && <Perfis estado={estado} abaFavoritos={tela === 'favoritos'} />}
         {tela === 'vivo' && <AoVivo estado={estado} />}
         {tela === 'lives' && <Lives />}
         {tela === 'janelas' && <Janelas />}

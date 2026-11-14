@@ -75,6 +75,9 @@ export class Motor extends EventEmitter {
   private fila: ItemFila[] = []
   private ciclosEmEspera = new Map<number, CicloEmEspera>()
   private abrindoAgora = 0
+  private aberturasPendentes = new Set<Promise<void>>()
+  private encerrandoCiclo = false
+  private geracaoCiclo = 0
   private proximaAbertura = 0
   private timerFila?: NodeJS.Timeout
   private concluidosNoLote = 0
@@ -163,7 +166,7 @@ export class Motor extends EventEmitter {
 
   // Fecha os navegadores cujo tempo acabou (com o programa pausado, espera retomar).
   private verificarTempos() {
-    if (this.pausado || this.trocandoSite) return
+    if (this.pausado || this.trocandoSite || this.encerrandoCiclo) return
     const agora = Date.now()
     // O agendamento do F5 não depende do status da página após erro HTTP/timeout.
     for (const s of this.sessoes.values()) {
@@ -207,7 +210,7 @@ export class Motor extends EventEmitter {
     perfis: Perfil[],
     opcoes: { manterProxy?: boolean; duracaoMs?: number; recarregar?: TempoAberto; cookies?: ModoCookies; tempoAberto?: TempoAberto; aoAcabar?: 'fechar' | 'reabrir'; tempoFechadoMinutos?: number; tempoFechado?: TempoAberto } = {}
   ) {
-    if (this.trocandoSite) throw new Error('Aguarde o fechamento para trocar o site dos navegadores.')
+    if (this.encerrandoCiclo || this.trocandoSite) throw new Error('Aguarde o fechamento dos navegadores.')
     const ocupados = new Set([...this.sessoes.values()].map((s) => s.perfil.id).concat(this.fila.map((f) => f.perfil.id), [...this.ciclosEmEspera.values()].map((c) => c.item.perfil.id)))
     const recarregar = opcoes.recarregar && opcoes.recarregar.modo !== 'sem-limite' ? opcoes.recarregar : undefined
     for (const p of perfis) if (!ocupados.has(p.id)) this.fila.push({
@@ -242,7 +245,7 @@ export class Motor extends EventEmitter {
   }
 
   private async processarFila() {
-    if (this.trocandoSite) return
+    if (this.trocandoSite || this.encerrandoCiclo) return
     const cfgInicial = store.config
     const limite = Math.max(1, Math.min(LIMITE_ABERTURA, Math.round(cfgInicial.aberturasSimultaneas ?? 2)))
     const intervalo = Math.max(0, Math.min(15000, cfgInicial.intervaloEntreAberturasMs ?? 1500))
@@ -269,7 +272,8 @@ export class Motor extends EventEmitter {
       const item = this.fila.shift()!
       this.abrindoAgora++
       this.proximaAbertura = Date.now() + intervalo
-      this.abrirUm(item).finally(() => {
+      const abertura = this.abrirUm(item).finally(() => {
+        this.aberturasPendentes.delete(abertura)
         this.abrindoAgora--
         this.concluidosNoLote++
         if (store.config.reorganizarAposLote && this.concluidosNoLote % 5 === 0 && store.config.janelas.ativo) {
@@ -278,6 +282,7 @@ export class Motor extends EventEmitter {
         }
         this.processarFila()
       })
+      this.aberturasPendentes.add(abertura)
     }
   }
 
@@ -431,7 +436,7 @@ export class Motor extends EventEmitter {
         atualizadoEm: Date.now(), detalhe: traduzirErro(e)
       })
       if (cfg.recursosExtras?.categorizarFalhas) sessao.info.erroCategoria = categorizarFalha(e)
-      if (e instanceof ProxiesEsgotados) {
+      if (e instanceof ProxiesEsgotados && !this.encerrandoCiclo) {
         this.proxiesEsgotados = true
         this.pausado = true
         this.fila.unshift({ perfil: item.perfil, slot })
@@ -455,7 +460,7 @@ export class Motor extends EventEmitter {
 
   private aoCair(slot: number, sessao: Sessao) {
     if (this.sessoes.get(slot) !== sessao) return // já foi substituído
-    if (sessao.encerradoPorVoce) return
+    if (sessao.encerradoPorVoce || this.encerrandoCiclo) return
     const cfg = store.config
     sessao.info.quedas += 1
     logErro(`Navegador #${slot}`, `${sessao.perfil.nome} fechou ou caiu sozinho (queda ${sessao.info.quedas}).`)
@@ -475,6 +480,7 @@ export class Motor extends EventEmitter {
 
   // ---------- ações ----------
   async f5(slot: number) {
+    if (this.encerrandoCiclo) return
     const s = this.sessoes.get(slot)
     if (!s) return
     if (!s.browser?.connected) {
@@ -627,6 +633,7 @@ export class Motor extends EventEmitter {
   }
 
   private agendarReabertura(item: ItemFila, esperaMs: number) {
+    if (this.encerrandoCiclo) return
     const slot = item.slot!
     this.cancelarEsperaInterna(slot)
     const ciclo: CicloEmEspera = { item, reabreEm: Date.now() + esperaMs, tempoFechadoMinutos: item.tempoFechadoMinutos ?? 0, tempoSorteadoMinutos: esperaMs / 60_000 }
@@ -704,6 +711,26 @@ export class Motor extends EventEmitter {
     this.avisarMudanca()
   }
 
+  perfilOcupado(id: number) {
+    return [...this.sessoes.values()].some((s) => s.perfil.id === id) ||
+      this.fila.some((item) => item.perfil.id === id) ||
+      [...this.ciclosEmEspera.values()].some((c) => c.item.perfil.id === id)
+  }
+
+  async encerrarCiclo() {
+    this.encerrandoCiclo = true
+    this.geracaoCiclo++
+    try {
+      this.fila = []
+      for (const s of this.sessoes.values()) s.aoAcabar = 'fechar'
+      for (const slot of this.ciclosEmEspera.keys()) this.cancelarEsperaInterna(slot)
+      await Promise.allSettled(this.aberturasPendentes)
+      await this.encerrarTodos()
+    } finally {
+      this.encerrandoCiclo = false
+    }
+  }
+
   async encerrarTodos() {
     for (const slot of this.ciclosEmEspera.keys()) this.cancelarEsperaInterna(slot)
     this.fila = []
@@ -716,7 +743,7 @@ export class Motor extends EventEmitter {
    * Preserva cronômetros/F5/cookies e usa a fila normal para evitar sobrecarga.
    */
   async reabrirTodosEmNovoSite(endereco: string): Promise<{ quantidade: number; site: string }> {
-    if (this.trocandoSite) throw new Error('Já existe uma troca de site em andamento.')
+    if (this.trocandoSite || this.encerrandoCiclo) throw new Error('Já existe um fechamento em andamento.')
     if (this.pausado) throw new Error('Retome o programa antes de trocar o site.')
     if (this.abrindoAgora > 0 || this.fila.length > 0 || [...this.sessoes.values()].some((s) => s.fechando || s.info.status === 'abrindo'))
       throw new Error('Aguarde a fila de aberturas e os fechamentos atuais terminarem antes de trocar o site.')
@@ -761,10 +788,12 @@ export class Motor extends EventEmitter {
     const unicos = itens.filter((item, i) => itens.findIndex((x) => x.perfil.id === item.perfil.id) === i)
     if (!unicos.length) throw new Error('Nenhum navegador ativo ou aguardando reabertura neste PC.')
 
+    const geracaoCiclo = this.geracaoCiclo
     this.trocandoSite = true
     logInfo('Ao vivo', `Fechando ${unicos.length} navegador(es) para reabrir em ${site}, preservando os perfis e proxies.`)
     try {
       await this.encerrarTodos()
+      if (geracaoCiclo !== this.geracaoCiclo) throw new Error('O ciclo foi encerrado durante a troca de site.')
       for (const item of unicos) {
         store.setSite(item.perfil.id, site)
         item.perfil.site = site
@@ -788,6 +817,8 @@ export class Motor extends EventEmitter {
    * proxy: 'proximo' = próximo da lista; um id = proxy escolhido; texto = proxy colado na hora.
    */
   async substituir(slot: number, opcoes: { perfil: 'mesmo' | 'outro'; proxy: 'proximo' | { id: string } | { texto: string } }) {
+    if (this.encerrandoCiclo) return
+    const geracaoCiclo = this.geracaoCiclo
     const s = this.sessoes.get(slot)
     if (!s) return
     let perfil = s.perfil
@@ -816,8 +847,10 @@ export class Motor extends EventEmitter {
       this.aviso(e.message)
       return
     }
+    if (geracaoCiclo !== this.geracaoCiclo) return
     logInfo(`Navegador #${slot}`, `Substituindo ${s.perfil.nome} por ${perfil.nome}${proxy ? ` com o proxy ${proxy.host}:${proxy.porta}` : ''}.`)
     await this.encerrar([slot], true)
+    if (geracaoCiclo !== this.geracaoCiclo) return
     this.fila.unshift({ perfil, slot, proxy, fechaEm: s.info.fechaEm })
     this.processarFila()
   }

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { EstadoMotor, OpcoesCriacaoMassa, Perfil, ProgressoCriacao } from '../../../shared/types'
+import type { CicloProgramado, EncerramentoCiclo, EstadoMotor, FavoritoPerfil, OpcoesCriacaoMassa, Perfil, ProgressoCriacao } from '../../../shared/types'
 import { chamar, ouvir, useConfig, useRede } from '../api'
 import { avisar, confirmar } from '../confirmar'
 import { Modal, Opcao, corDoNumero } from '../componentes'
+import { configuracaoFavorito, horasCicloValidas, MAX_HORAS_CICLO } from '../../../shared/favoritos'
 import { contarPorSistema } from '../../../shared/sorteio'
 
 type CriacaoPc = { pcId: string; pcNome: string; progresso: ProgressoCriacao; iniciadoEm: number }
 
-export function Perfis({ estado }: { estado: EstadoMotor | null }) {
+export function Perfis({ estado, abaFavoritos }: { estado: EstadoMotor | null; abaFavoritos: boolean }) {
+  const rede = useRede()
   const [perfis, setPerfis] = useState<Perfil[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
@@ -15,6 +17,27 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
   const [busca, setBusca] = useState('')
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set())
   const [criando, setCriando] = useState(false)
+  const [favoritoInicial, setFavoritoInicial] = useState<FavoritoPerfil>()
+  const [favoritos, setFavoritos] = useState<FavoritoPerfil[]>([])
+  const [erroFavoritos, setErroFavoritos] = useState('')
+  const [ciclo, setCiclo] = useState<CicloProgramado | null>(null)
+  useEffect(() => {
+    chamar<FavoritoPerfil[]>('listarFavoritosPerfis').then(setFavoritos).catch((e: Error) => setErroFavoritos(e.message))
+  }, [])
+  useEffect(() => {
+    let ativo = true
+    setCiclo(null)
+    const consultar = () => chamar<CicloProgramado | null>('cicloProgramado')
+      .then((valor) => { if (ativo) setCiclo(valor) })
+      .catch(() => { if (ativo) setCiclo(null) })
+    void consultar()
+    const timer = setInterval(consultar, 2500)
+    return () => { ativo = false; clearInterval(timer) }
+  }, [rede?.alvoAtivoId, rede?.conectado])
+  const abrirCriacao = (favorito?: FavoritoPerfil) => {
+    setFavoritoInicial(favorito)
+    setCriando(true)
+  }
   const [criacoesPc, setCriacoesPc] = useState<CriacaoPc[]>([])
   useEffect(() => {
     chamar<CriacaoPc[]>('criacoesEmMassaEmAndamento').then(setCriacoesPc).catch(() => undefined)
@@ -68,20 +91,26 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
     <>
       <div className="cabecalho">
         <div>
-          <h1>Perfis</h1>
+          <h1>{abaFavoritos ? 'Favoritos' : 'Perfis'}</h1>
           <p className="sub">
-            {perfis.length} perfis · {estado?.navegadores.length ?? 0} abertos agora
+            {abaFavoritos ? 'Salve links e reutilize os ajustes da criação em massa.' : `${perfis.length} perfis · ${estado?.navegadores.length ?? 0} abertos agora`}
           </p>
         </div>
-        <div className="linha">
+        {!abaFavoritos && <div className="linha">
           <input className="solto" type="search" placeholder="Buscar perfil" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar perfil" />
           <button className="btn" onClick={carregar}>Atualizar lista</button>
           <button className="btn" disabled={!perfis.length} onClick={() => setAlterandoLinks(true)}>Alterar link em massa</button>
-          <button className="btn primario" onClick={() => setCriando(true)}>Criar em massa</button>
-        </div>
+          <button className="btn primario" onClick={() => abrirCriacao()}>Criar em massa</button>
+        </div>}
       </div>
 
-      {erro && <div className="aviso">{erro}</div>}
+      {ciclo && <div className="aviso linha">
+        <span>{ciclo.encerrando ? 'Encerrando o ciclo…' : `Ciclo do PC ativo termina em ${new Date(ciclo.terminaEm).toLocaleString('pt-BR')}`}</span>
+        <button className="btn pequeno" disabled={ciclo.encerrando} onClick={async () => {
+          try { await chamar('cancelarEncerramentoCiclo'); setCiclo(null) }
+          catch (e) { await avisar(String(e instanceof Error ? e.message : e)) }
+        }}>Cancelar temporizador</button>
+      </div>}
       {criacoesPc.length > 0 && (
         <section className="painel">
           <strong>Criações em massa por computador</strong>
@@ -101,6 +130,10 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
         </section>
       )}
 
+      {abaFavoritos ? (
+        <ListaFavoritos favoritos={favoritos} aoAtualizar={setFavoritos} aoIniciar={abrirCriacao} erroInicial={erroFavoritos} />
+      ) : <>
+      {erro && <div className="aviso">{erro}</div>}
       <div className="linha">
         {['Todos', ...etiquetas, 'Sem etiqueta', 'Abertos'].map((f) => (
           <button key={f} className={`pilula ${filtro === f ? 'ativa' : ''}`} onClick={() => setFiltro(f)}>
@@ -182,8 +215,10 @@ export function Perfis({ estado }: { estado: EstadoMotor | null }) {
         </div>
       </div>
 
+      </>}
+
       {alterandoLinks && <AlterarLinksEmMassa perfis={perfis} selecionados={[...selecionados]} aoFechar={() => { setAlterandoLinks(false); carregar() }} />}
-      {criando && <CriarEmMassa total={perfis.length} aoFechar={() => { setCriando(false); carregar() }} />}
+      {criando && <CriarEmMassa perfis={perfis} favoritos={favoritos} favoritoInicial={favoritoInicial} aoAtualizarFavoritos={setFavoritos} aoFechar={() => { setCriando(false); carregar() }} />}
       {editando && <EditarPerfil perfil={editando} aoFechar={() => { setEditando(null); carregar() }} />}
       {limpando && (
         <LimparPerfis
@@ -323,13 +358,91 @@ function EditarPerfil({ perfil, aoFechar }: { perfil: Perfil; aoFechar: () => vo
   )
 }
 
+function ListaFavoritos({ favoritos, aoAtualizar, aoIniciar, erroInicial }: {
+  favoritos: FavoritoPerfil[]
+  aoAtualizar: (lista: FavoritoPerfil[]) => void
+  aoIniciar: (favorito: FavoritoPerfil) => void
+  erroInicial: string
+}) {
+  const [editando, setEditando] = useState<FavoritoPerfil>()
+  const [nome, setNome] = useState('')
+  const [site, setSite] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  const [erro, setErro] = useState('')
+  const editar = (favorito?: FavoritoPerfil) => {
+    setEditando(favorito)
+    setNome(favorito?.nome ?? '')
+    setSite(favorito?.site ?? '')
+    setErro('')
+  }
+  const salvar = async () => {
+    setOcupado(true)
+    try {
+      aoAtualizar(await chamar<FavoritoPerfil[]>('salvarFavoritoPerfil', nome, site, undefined, editando?.id))
+      editar()
+    } catch (e) { setErro(String(e instanceof Error ? e.message : e)) }
+    finally { setOcupado(false) }
+  }
+  const apagar = async (favorito: FavoritoPerfil) => {
+    if (!(await confirmar(`Remover o favorito “${favorito.nome}”?`))) return
+    setOcupado(true)
+    try {
+      aoAtualizar(await chamar<FavoritoPerfil[]>('apagarFavoritoPerfil', favorito.id))
+      if (editando?.id === favorito.id) editar()
+    } catch (e) { setErro(String(e instanceof Error ? e.message : e)) }
+    finally { setOcupado(false) }
+  }
+  return <>
+    <section className="painel">
+      <strong>{editando ? 'Editar favorito' : 'Adicionar favorito'}</strong>
+      <div className="grade-campos">
+        <label className="campo">Nome<input value={nome} onChange={(e) => setNome(e.target.value)} /></label>
+        <label className="campo">Link<input value={site} placeholder="https://exemplo.com" onChange={(e) => setSite(e.target.value)} /></label>
+      </div>
+      <div className="linha">
+        <button className="btn primario" disabled={ocupado || !nome.trim() || !site.trim()} onClick={salvar}>Salvar favorito</button>
+        {editando && <button className="btn" disabled={ocupado} onClick={() => editar()}>Cancelar edição</button>}
+      </div>
+      {(erro || erroInicial) && <div className="aviso">{erro || erroInicial}</div>}
+    </section>
+    <section className="painel">
+      {favoritos.length === 0 && <div className="vazio">Nenhum favorito salvo.</div>}
+      {favoritos.map((f) => <div key={f.id} className="linha" style={{ flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 160, overflowWrap: 'anywhere' }}>
+          <strong>{f.nome}</strong>
+          <div className="dica">{f.site}</div>
+          <div className="dica">{f.configuracao ? `${f.configuracao.quantidade} perfis · configuração salva` : 'Apenas link salvo'}</div>
+        </div>
+        <button className="btn pequeno" disabled={ocupado} onClick={() => editar(f)}>Editar</button>
+        <button className="btn pequeno perigo" disabled={ocupado} onClick={() => apagar(f)}>Remover</button>
+        <button className="btn pequeno primario" disabled={ocupado} onClick={() => aoIniciar(f)}>Novo ciclo</button>
+      </div>)}
+    </section>
+  </>
+}
+
 const LIMITE_PLANO = 100
 
-function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void }) {
-  const [cfg, salvarCfg] = useConfig()
+const OPCOES_INICIAIS: OpcoesCriacaoMassa = {
+  quantidade: 10, nomeBase: 'Teste', comecarDe: 1, modoProxy: 'nenhum', tipoProxy: 'http',
+  etiqueta: 'Testes', sistema: 'windows', listaProxies: '', proxyUnico: '', site: ''
+}
+
+function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos, aoFechar }: {
+  perfis: Perfil[]
+  favoritos: FavoritoPerfil[]
+  favoritoInicial?: FavoritoPerfil
+  aoAtualizarFavoritos: (lista: FavoritoPerfil[]) => void
+  aoFechar: () => void
+}) {
+  const [cfg] = useConfig()
   const rede = useRede()
   const [pcDestino, setPcDestino] = useState('')
-  const [totalDestino, setTotalDestino] = useState<number | null>(null)
+  const [nomesDestino, setNomesDestino] = useState<{ pcId: string; nomes: string[] } | null>(null)
+  const [idFavorito, setIdFavorito] = useState(favoritoInicial?.id)
+  const [nomeFavorito, setNomeFavorito] = useState(favoritoInicial?.nome ?? '')
+  const [salvandoFavorito, setSalvandoFavorito] = useState(false)
+  const [avisoFavorito, setAvisoFavorito] = useState('')
   const [erroInicio, setErroInicio] = useState('')
   const [iniciando, setIniciando] = useState(false)
   useEffect(() => {
@@ -339,15 +452,16 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
   useEffect(() => {
     if (rede?.papel !== 'principal' || !pcDestino) return
     let ativo = true
-    setTotalDestino(null)
-    chamar<number>('quantidadePerfisNoPc', pcDestino)
-      .then((n) => { if (ativo) setTotalDestino(n) })
+    chamar<string[]>('nomesPerfisNoPc', pcDestino)
+      .then((nomes) => { if (ativo) setNomesDestino({ pcId: pcDestino, nomes }) })
       .catch((e) => { if (ativo) setErroInicio('Falha ao consultar perfis do PC: ' + String(e instanceof Error ? e.message : e)) })
     return () => { ativo = false }
   }, [rede?.papel, pcDestino])
-  const [o, setO] = useState<OpcoesCriacaoMassa>({
-    quantidade: 10, nomeBase: 'Teste', comecarDe: 1, modoProxy: 'nenhum', tipoProxy: 'http', etiqueta: 'Testes', sistema: 'windows', listaProxies: '', proxyUnico: '', site: ''
-  })
+  const [o, setO] = useState<OpcoesCriacaoMassa>(() => ({
+    ...OPCOES_INICIAIS, ...favoritoInicial?.configuracao, site: favoritoInicial?.site ?? '',
+    abrirAoCriar: favoritoInicial?.configuracao ? favoritoInicial.configuracao.abrirAoCriar : !!favoritoInicial,
+    atualizarProxyExistente: !!favoritoInicial
+  }))
   const [prog, setProg] = useState<ProgressoCriacao | null>(null)
   // No principal, eventos de outro PC não devem travar este formulário.
   // Cada criação remota é acompanhada pelo painel separado acima.
@@ -355,10 +469,26 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
     if (rede?.papel === 'principal') return
     return ouvir('progresso-criacao', setProg)
   }, [rede?.papel])
-  const muda = (p: Partial<OpcoesCriacaoMassa>) => setO({ ...o, ...p })
+  const muda = (p: Partial<OpcoesCriacaoMassa>) => setO((anterior) => ({ ...anterior, ...p }))
+  const aplicarFavorito = (f: FavoritoPerfil) => {
+    setIdFavorito(f.id)
+    setNomeFavorito(f.nome)
+    setAvisoFavorito('')
+    setO((anterior) => f.configuracao ? {
+      ...OPCOES_INICIAIS, ...f.configuracao, site: f.site,
+      modoProxy: anterior.modoProxy, tipoProxy: anterior.tipoProxy, listaProxies: anterior.listaProxies,
+      proxyUnico: anterior.proxyUnico, atualizarProxyExistente: anterior.atualizarProxyExistente
+    } : { ...anterior, site: f.site })
+  }
 
-  const totalAtual = rede?.papel === 'principal' ? (totalDestino ?? 0) : total
-  const depois = totalAtual + o.quantidade
+  const remoto = rede?.papel === 'principal'
+  const consultando = remoto && (!nomesDestino || nomesDestino.pcId !== pcDestino)
+  const nomes = remoto ? (consultando ? [] : nomesDestino?.nomes ?? []) : perfis.map((p) => p.nome)
+  const existentes = new Set(nomes)
+  const nomesDoLote = Array.from({ length: o.quantidade }, (_, i) => `${o.nomeBase} ${o.comecarDe + i}`)
+  const reutilizados = nomesDoLote.filter((nome) => existentes.has(nome)).length
+  const totalAtual = nomes.length
+  const depois = totalAtual + o.quantidade - reutilizados
   const passa = depois - LIMITE_PLANO
   const qtdProxies = (o.listaProxies ?? '').split(/\r?\n/).filter((l) => l.trim()).length
   const criando = prog !== null && !prog.terminou
@@ -372,8 +502,27 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
   const f5Invalido = f5.modo === 'aleatorio' && f5.de > f5.ate
   const pausaInvalida = !Number.isFinite(o.tempoFechadoMinutos ?? 0) || (o.tempoFechadoMinutos ?? 0) > 10080
 
+  const cicloInvalido = !!o.encerrarCiclo && !horasCicloValidas(o.encerrarCiclo.horas)
+  const proxyVazio = (o.modoProxy === 'lista' && !qtdProxies) || (o.modoProxy === 'mesmo' && !o.proxyUnico?.trim())
+  const opcoes = {
+    ...o, porcentagens: porc, tempoAberto: tempo, recarregar: f5, cookies: o.cookies ?? 'aceitar' as const,
+    aoAcabar: o.aoAcabar ?? 'reabrir' as const, manterAtivas: o.manterAtivas ?? (cfg?.manterAtivas !== false),
+    atualizarProxyExistente: o.modoProxy !== 'nenhum' && !!o.atualizarProxyExistente
+  }
+  const salvarFavorito = async () => {
+    setSalvandoFavorito(true)
+    setAvisoFavorito('')
+    try {
+      const lista = await chamar<FavoritoPerfil[]>('salvarFavoritoPerfil', nomeFavorito, o.site, configuracaoFavorito(opcoes), idFavorito)
+      aoAtualizarFavoritos(lista)
+      setIdFavorito(lista[0]?.id)
+      setAvisoFavorito('Link e configuração salvos.')
+    } catch (e) { setAvisoFavorito(String(e instanceof Error ? e.message : e)) }
+    finally { setSalvandoFavorito(false) }
+  }
+
   return (
-    <Modal titulo="Criar perfis em massa" sub="Os perfis são criados direto no Dolphin Anty do computador escolhido." aoFechar={() => !criando && !iniciando && aoFechar()}>
+    <Modal titulo="Criar perfis em massa" sub="Os perfis são criados direto no Dolphin Anty do computador escolhido." aoFechar={() => !criando && !iniciando && !salvandoFavorito && aoFechar()}>
       {rede?.papel === 'principal' && (
         <div className="campo">
           Escolha o computador para esta criação
@@ -392,13 +541,30 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
         </div>
       )}
       {erroInicio && <div className="aviso" style={{ color: '#ffb3c1' }}>{erroInicio}</div>}
+      <section className="painel">
+        <label className="campo">Site ao abrir
+          <input placeholder={cfg?.siteInicial ?? 'https://exemplo.com'} value={o.site} disabled={criando || iniciando || salvandoFavorito} onChange={(e) => {
+            setIdFavorito(undefined); setNomeFavorito(''); setAvisoFavorito(''); muda({ site: e.target.value })
+          }} />
+        </label>
+        {favoritos.length > 0 && <div className="escolhas" aria-label="Escolher favorito">
+          {favoritos.map((f) => <button key={f.id} type="button" className={`btn pequeno ${f.id === idFavorito ? 'primario' : ''}`} disabled={criando || iniciando || salvandoFavorito} onClick={() => aplicarFavorito(f)}>{f.nome}</button>)}
+        </div>}
+        <div className="linha" style={{ flexWrap: 'wrap' }}>
+          <input className="solto" aria-label="Nome do favorito" placeholder="Nome do favorito" value={nomeFavorito} disabled={salvandoFavorito} onChange={(e) => setNomeFavorito(e.target.value)} />
+          <button className="btn pequeno" disabled={criando || iniciando || salvandoFavorito || !o.site?.trim() || !nomeFavorito.trim() || !o.nomeBase.trim() || cicloInvalido || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida} onClick={salvarFavorito}>
+            {idFavorito ? 'Atualizar configuração' : 'Salvar link e configuração'}
+          </button>
+        </div>
+        {avisoFavorito && <div className="dica" role="status">{avisoFavorito}</div>}
+      </section>
       <div className="grade-campos">
-        <label className="campo">Quantidade<input type="number" min={1} max={LIMITE_PLANO} value={o.quantidade} onChange={(e) => muda({ quantidade: Math.max(1, Number(e.target.value)) })} /></label>
+        <label className="campo">Quantidade<input type="number" min={1} max={LIMITE_PLANO} value={o.quantidade} onChange={(e) => muda({ quantidade: Math.min(LIMITE_PLANO, Math.max(1, Math.trunc(Number(e.target.value)))) })} /></label>
         <label className="campo">Nome base<input value={o.nomeBase} onChange={(e) => muda({ nomeBase: e.target.value })} /></label>
         <label className="campo">Começar do número<input type="number" min={1} value={o.comecarDe} onChange={(e) => muda({ comecarDe: Math.max(1, Number(e.target.value)) })} /></label>
       </div>
       <div className="aviso">
-        Vai criar: <strong>{o.nomeBase} {o.comecarDe}</strong>, <strong>{o.nomeBase} {o.comecarDe + 1}</strong> … <strong>{o.nomeBase} {o.comecarDe + o.quantidade - 1}</strong>
+        Nomes do lote <strong>{o.nomeBase} {o.comecarDe}</strong>, <strong>{o.nomeBase} {o.comecarDe + 1}</strong> … <strong>{o.nomeBase} {o.comecarDe + o.quantidade - 1}</strong>
       </div>
 
       <div className="campo">
@@ -435,6 +601,11 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
         </label>
       )}
 
+      {o.modoProxy !== 'nenhum' && <label className="linha">
+        <input type="checkbox" checked={!!o.atualizarProxyExistente} onChange={(e) => muda({ atualizarProxyExistente: e.target.checked })} />
+        Aplicar os proxies informados também aos perfis existentes com os mesmos nomes
+      </label>}
+
       <div className="grade-campos">
         <label className="campo">Etiqueta<input value={o.etiqueta} onChange={(e) => muda({ etiqueta: e.target.value })} /></label>
         <label className="campo">
@@ -446,7 +617,6 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
             <option value="sorteado">Sortear (por porcentagem)</option>
           </select>
         </label>
-        <label className="campo">Site ao abrir<input placeholder={cfg?.siteInicial ?? 'Padrão'} value={o.site} onChange={(e) => muda({ site: e.target.value })} /></label>
         <label className="campo">
           Privacidade do perfil
           <select value={o.privacidade ?? 'anonimo'} onChange={(e) => muda({ privacidade: e.target.value as OpcoesCriacaoMassa['privacidade'] })}>
@@ -456,7 +626,7 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
         </label>
       </div>
       <label className="linha" style={{ gap: 8, cursor: 'pointer', alignItems: 'flex-start' }}>
-        <input type="checkbox" checked={cfg?.manterAtivas !== false} onChange={(e) => salvarCfg({ manterAtivas: e.target.checked })} style={{ marginTop: 3 }} />
+        <input type="checkbox" checked={opcoes.manterAtivas} onChange={(e) => muda({ manterAtivas: e.target.checked })} style={{ marginTop: 3 }} />
         <span>
           Manter todas as janelas ativas, mesmo cobertas
           <br />
@@ -626,19 +796,41 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
         />
       </div>
 
+      <div className="grade-campos">
+        <label className="campo">Fim do ciclo
+          <select value={o.encerrarCiclo?.acao ?? ''} onChange={(e) => {
+            const acao = e.target.value as EncerramentoCiclo['acao'] | ''
+            muda({ encerrarCiclo: acao ? { acao, horas: o.encerrarCiclo?.horas ?? 2 } : undefined })
+          }}>
+            <option value="">Sem temporizador</option>
+            <option value="encerrar-navegadores">Encerrar navegadores e manter o Gerenciador aberto</option>
+            <option value="fechar-programa">Encerrar navegadores e fechar o Gerenciador</option>
+          </select>
+        </label>
+        {o.encerrarCiclo && <label className="campo">Duração em horas
+          <input type="number" step="any" min={1 / 60} max={MAX_HORAS_CICLO} value={o.encerrarCiclo.horas || ''}
+            onChange={(e) => {
+              if (o.encerrarCiclo) muda({ encerrarCiclo: { ...o.encerrarCiclo, horas: Number(e.target.value) } })
+            }} />
+        </label>}
+      </div>
+      {o.encerrarCiclo && <div className="dica">A contagem começa ao terminar a criação. Ao vencer, encerra os navegadores controlados pelo Gerenciador no PC escolhido. Aceita horas decimais, como 0,5 para 30 minutos.</div>}
+      {cicloInvalido && <div className="dica" role="alert">Informe um tempo entre 1 minuto e 168 horas.</div>}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div className="linha" style={{ justifyContent: 'space-between', fontSize: 13 }}>
           <span className="dica">Uso do plano depois de criar</span>
-          <strong>{rede?.papel === 'principal' && totalDestino === null ? 'Consultando...' : totalAtual} → {rede?.papel === 'principal' && totalDestino === null ? '—' : depois} de {LIMITE_PLANO}</strong>
+          <strong>{consultando ? 'Consultando...' : totalAtual} → {consultando ? '—' : depois} de {LIMITE_PLANO}</strong>
         </div>
         <div className="barra"><div style={{ width: `${Math.min(100, (depois / LIMITE_PLANO) * 100)}%`, background: passa > 0 ? '#F59E0B' : undefined }} /></div>
-        {passa > 0 && <span style={{ color: 'var(--amarelo)', fontSize: 13 }}>Passa do limite em {passa}. Diminua para {Math.max(0, LIMITE_PLANO - total)} ou apague perfis antigos.</span>}
+        {reutilizados > 0 && <span className="dica">{reutilizados} perfis existentes com os mesmos nomes serão reutilizados.</span>}
+        {passa > 0 && <span style={{ color: 'var(--amarelo)', fontSize: 13 }}>O lote ultrapassa o limite do plano em {passa} perfis. Ajuste a quantidade ou os nomes.</span>}
       </div>
 
       {prog && (
         <div className="aviso">
           {prog.terminou ? 'Pronto!' : 'Criando'} {prog.feitos} de {prog.total}
-          {prog.pulados ? ` · ${prog.pulados} já existiam e foram pulados` : ''}
+          {prog.pulados ? ` · ${prog.pulados} reutilizados` : ''}
           {prog.terminou && prog.erros.length ? ` · ${prog.erros.length} falharam (clique em Criar de novo para tentar só esses)` : ''}
           <div className="barra" style={{ marginTop: 8 }}><div style={{ width: `${(prog.feitos / prog.total) * 100}%` }} /></div>
           {prog.erros.length > 0 && <div style={{ marginTop: 8, color: '#ffb3c1' }}>{prog.erros.slice(-3).join(' · ')}</div>}
@@ -646,30 +838,26 @@ function CriarEmMassa({ total, aoFechar }: { total: number; aoFechar: () => void
       )}
 
       <div className="linha" style={{ justifyContent: 'flex-end' }}>
-        <button className="btn" disabled={criando} onClick={aoFechar}>{prog?.terminou ? 'Fechar' : 'Cancelar'}</button>
-        {passa > 0 ? (
-          <button className="btn primario" onClick={() => muda({ quantidade: Math.max(1, LIMITE_PLANO - totalAtual) })}>Ajustar para {Math.max(0, LIMITE_PLANO - totalAtual)}</button>
-        ) : (
-          <button className="btn primario" disabled={criando || iniciando || (rede?.papel === 'principal' && (totalDestino === null || !rede.pcs?.some((pc) => pc.id === pcDestino && pc.conectado))) || !o.nomeBase.trim() || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida} onClick={async () => {
-             const opcoes = { ...o, porcentagens: porc, tempoAberto: tempo, recarregar: f5, cookies: o.cookies ?? 'aceitar', aoAcabar: o.aoAcabar ?? 'reabrir' }
+        <button className="btn" disabled={criando || iniciando || salvandoFavorito} onClick={aoFechar}>{prog?.terminou ? 'Fechar' : 'Cancelar'}</button>
+          <button className="btn primario" disabled={passa > 0 || criando || iniciando || salvandoFavorito || consultando || (remoto && !rede.pcs?.some((pc) => pc.id === pcDestino && pc.conectado)) || !o.nomeBase.trim() || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida || cicloInvalido || proxyVazio} onClick={async () => {
+             const opcoesDoLote = idFavorito ? { ...opcoes, site2: opcoes.site2 ?? '' } : opcoes
              setErroInicio('')
              if (rede?.papel === 'principal') {
                setIniciando(true)
                try {
-                 await chamar('iniciarCriacaoNoPc', pcDestino, opcoes)
+                 await chamar('iniciarCriacaoNoPc', pcDestino, opcoesDoLote)
                  aoFechar()
                } catch (e) { setErroInicio(String(e instanceof Error ? e.message : e)) }
                finally { setIniciando(false) }
              } else {
                setProg({ feitos: 0, total: o.quantidade, erros: [], terminou: false })
-               chamar('criarEmMassa', opcoes).catch((e) => {
+               chamar('criarEmMassa', opcoesDoLote).catch((e) => {
                  setProg({ feitos: 0, total: o.quantidade, erros: [String(e instanceof Error ? e.message : e)], terminou: true })
                })
              }
            }}>
-            {o.abrirAoCriar ? 'Criar e abrir' : 'Criar'} {o.quantidade} perfis
+            {favoritoInicial && o.abrirAoCriar ? 'Iniciar novo ciclo' : `${o.abrirAoCriar ? 'Criar e abrir' : 'Criar'} ${o.quantidade} perfis`}
           </button>
-        )}
       </div>
     </Modal>
   )
