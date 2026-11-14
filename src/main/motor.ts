@@ -514,8 +514,8 @@ export class Motor extends EventEmitter {
     tipo: 'f5' | 'fechamento',
     tempo: TempoAberto,
     aoAcabar: 'fechar' | 'reabrir' = 'fechar',
-    tempoFechadoMinutos?: number,
-    tempoFechado?: TempoAberto
+    tempoFechadoMinutos?: number | null,
+    tempoFechado?: TempoAberto | null
   ): { alterados: number; ignorados: number } {
     if (!Array.isArray(slots) || !['f5', 'fechamento'].includes(tipo)) throw new Error('Seleção inválida')
     if (!tempo || !['sem-limite', 'fixo', 'aleatorio'].includes(tempo.modo)) throw new Error('Modo de tempo inválido')
@@ -523,8 +523,11 @@ export class Motor extends EventEmitter {
     if (valores.some((v) => !Number.isFinite(v) || v < 0 || v > 10080)) throw new Error('Informe tempos válidos de até 7 dias')
     if (tempo.modo === 'fixo' && tempo.minutos <= 0) throw new Error('Tempo fixo deve ser maior que zero')
     if (tempo.modo === 'aleatorio' && (tempo.de <= 0 || tempo.ate <= 0 || tempo.de > tempo.ate)) throw new Error('Intervalo aleatório inválido')
-    if (tempoFechadoMinutos !== undefined && (!Number.isFinite(tempoFechadoMinutos) || tempoFechadoMinutos < 0 || tempoFechadoMinutos > 10080)) throw new Error('Tempo fechado inválido')
-    if (tempoFechado && tempoFechado.modo !== 'sem-limite') {
+    // Argumentos opcionais em chamadas remotas podem chegar como null pelo JSON.
+    if (tipo === 'fechamento' && tempoFechadoMinutos != null &&
+        (!Number.isFinite(tempoFechadoMinutos) || tempoFechadoMinutos < 0 || tempoFechadoMinutos > 10080))
+      throw new Error('Tempo fechado inválido')
+    if (tipo === 'fechamento' && tempoFechado && tempoFechado.modo !== 'sem-limite') {
       const valido = [tempoFechado.minutos, tempoFechado.de, tempoFechado.ate].every((x) => Number.isFinite(x) && x >= 0 && x <= 10080)
       if (!valido || (tempoFechado.modo === 'fixo' && tempoFechado.minutos <= 0) ||
           (tempoFechado.modo === 'aleatorio' && (tempoFechado.de <= 0 || tempoFechado.de > tempoFechado.ate)))
@@ -544,9 +547,9 @@ export class Motor extends EventEmitter {
         s.aoAcabar = ativo ? aoAcabar : undefined
         s.info.fechaEm = ativo ? agora + (sortearDuracao(tempo) ?? 0) : undefined
         s.info.reabreAoAcabar = ativo && aoAcabar === 'reabrir'
-        if (tempoFechadoMinutos !== undefined) s.tempoFechadoMinutos = tempoFechadoMinutos
-        if (tempoFechado !== undefined) s.tempoFechado = tempoFechado.modo === 'sem-limite' ? undefined : { ...tempoFechado }
-        else if (tempoFechadoMinutos !== undefined) s.tempoFechado = undefined
+        if (tempoFechadoMinutos != null) s.tempoFechadoMinutos = tempoFechadoMinutos
+        if (tempoFechado != null) s.tempoFechado = tempoFechado.modo === 'sem-limite' ? undefined : { ...tempoFechado }
+        else if (tempoFechadoMinutos != null) s.tempoFechado = undefined
         s.info.tempoFechadoMinutos = s.tempoFechadoMinutos
         s.info.tempoFechado = s.tempoFechado
       }

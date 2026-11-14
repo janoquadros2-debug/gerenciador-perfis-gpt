@@ -281,7 +281,7 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   verificarVideoAgora: (slot: number) => motor.verificarAgora(slot),
   testarPlayLocal: (slot: number) => motor.testarPlayLocal(slot),
   retomarDiagnostico: (slot: number) => motor.retomarDiagnostico(slot),
-  ajustarCronometros: (slots: number[], tipo: 'f5' | 'fechamento', tempo: import('../shared/types').TempoAberto, aoAcabar?: 'fechar' | 'reabrir', tempoFechadoMinutos?: number, tempoFechado?: import('../shared/types').TempoAberto) =>
+  ajustarCronometros: (slots: number[], tipo: 'f5' | 'fechamento', tempo: import('../shared/types').TempoAberto, aoAcabar?: 'fechar' | 'reabrir', tempoFechadoMinutos?: number | null, tempoFechado?: import('../shared/types').TempoAberto | null) =>
     motor.ajustarCronometros(slots, tipo, tempo, aoAcabar, tempoFechadoMinutos, tempoFechado),
   cancelarCiclo: (slot: number) => motor.cancelarCiclo(slot),
   alterarEsperaCiclo: (slot: number, minutos: number) => motor.alterarEsperaCiclo(slot, minutos),

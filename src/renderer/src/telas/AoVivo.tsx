@@ -376,18 +376,22 @@ function ProgramarCronometros({ slots, nome, aoFechar }: { slots: number[]; nome
       setErro('Confira os minutos e o intervalo informado.')
       return
     }
-    if (tipo === 'fechamento' && aoAcabar === 'reabrir' && (!Number.isFinite(tempoFechadoMinutos) || tempoFechadoMinutos < 0 || tempoFechadoMinutos > 10080)) {
+    const vaiReabrir = tipo === 'fechamento' && modo !== 'sem-limite' && aoAcabar === 'reabrir'
+    if (vaiReabrir && (!Number.isFinite(tempoFechadoMinutos) || tempoFechadoMinutos < 0 || tempoFechadoMinutos > 10080)) {
       setErro('Tempo fechado inválido.')
       return
     }
     setSalvando(true)
     setErro('')
     try {
-      const resultado = await chamar<{ alterados: number; ignorados: number }>('ajustarCronometros', slots, tipo, { modo, minutos, de, ate }, aoAcabar, tipo === 'fechamento' && aoAcabar === 'reabrir' ? tempoFechadoMinutos : undefined)
+      const tempo = { modo, minutos, de, ate }
+      const parametros: [acao?: 'fechar' | 'reabrir', espera?: number] =
+        vaiReabrir ? ['reabrir', tempoFechadoMinutos] : tipo === 'fechamento' ? ['fechar'] : []
+      const resultado = await chamar<{ alterados: number; ignorados: number }>('ajustarCronometros', slots, tipo, tempo, ...parametros)
       if (!resultado.alterados) { setErro('Nenhum perfil selecionado está disponível.'); return }
       aoFechar()
     } catch (e) {
-      setErro(String(e instanceof Error ? e.message : e))
+      setErro(String(e instanceof Error ? e.message : e).replace(/^Error invoking remote method 'chamar': (?:Error: )?/, ''))
     } finally { setSalvando(false) }
   }
   return (
