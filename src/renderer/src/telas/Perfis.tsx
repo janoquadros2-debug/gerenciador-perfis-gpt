@@ -440,6 +440,9 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
   const [pcDestino, setPcDestino] = useState('')
   const [nomesDestino, setNomesDestino] = useState<{ pcId: string; nomes: string[] } | null>(null)
   const [idFavorito, setIdFavorito] = useState(favoritoInicial?.id)
+  const [origemConfiguracao, setOrigemConfiguracao] = useState<'salva' | 'nova' | ''>(
+    favoritoInicial?.configuracao ? '' : 'nova'
+  )
   const [nomeFavorito, setNomeFavorito] = useState(favoritoInicial?.nome ?? '')
   const [salvandoFavorito, setSalvandoFavorito] = useState(false)
   const [avisoFavorito, setAvisoFavorito] = useState('')
@@ -458,8 +461,8 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
     return () => { ativo = false }
   }, [rede?.papel, pcDestino])
   const [o, setO] = useState<OpcoesCriacaoMassa>(() => ({
-    ...OPCOES_INICIAIS, ...favoritoInicial?.configuracao, site: favoritoInicial?.site ?? '',
-    abrirAoCriar: favoritoInicial?.configuracao ? favoritoInicial.configuracao.abrirAoCriar : !!favoritoInicial,
+    ...OPCOES_INICIAIS, site: favoritoInicial?.site ?? '', nomeBase: favoritoInicial?.nome ?? OPCOES_INICIAIS.nomeBase,
+    abrirAoCriar: !!favoritoInicial,
     atualizarProxyExistente: !!favoritoInicial
   }))
   const [prog, setProg] = useState<ProgressoCriacao | null>(null)
@@ -470,16 +473,31 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
     return ouvir('progresso-criacao', setProg)
   }, [rede?.papel])
   const muda = (p: Partial<OpcoesCriacaoMassa>) => setO((anterior) => ({ ...anterior, ...p }))
+  const aplicarConfiguracao = (f: FavoritoPerfil, configuracao?: FavoritoPerfil['configuracao']) => {
+    setO((anterior) => ({
+      ...OPCOES_INICIAIS, abrirAoCriar: !!favoritoInicial, ...configuracao,
+      site: f.site, nomeBase: f.nome,
+      modoProxy: anterior.modoProxy, tipoProxy: anterior.tipoProxy, listaProxies: anterior.listaProxies,
+      proxyUnico: anterior.proxyUnico, atualizarProxyExistente: anterior.atualizarProxyExistente
+    }))
+  }
   const aplicarFavorito = (f: FavoritoPerfil) => {
     setIdFavorito(f.id)
     setNomeFavorito(f.nome)
     setAvisoFavorito('')
-    setO((anterior) => f.configuracao ? {
-      ...OPCOES_INICIAIS, ...f.configuracao, site: f.site,
-      modoProxy: anterior.modoProxy, tipoProxy: anterior.tipoProxy, listaProxies: anterior.listaProxies,
-      proxyUnico: anterior.proxyUnico, atualizarProxyExistente: anterior.atualizarProxyExistente
-    } : { ...anterior, site: f.site })
+    if (f.configuracao) aplicarConfiguracao(f, f.configuracao)
+    else muda({ site: f.site, nomeBase: f.nome })
   }
+  const escolherConfiguracao = (origem: 'salva' | 'nova') => {
+    if (!favoritoInicial || origemConfiguracao === origem) return
+    const favorito = favoritos.find((f) => f.id === favoritoInicial.id) ?? favoritoInicial
+    if (origem === 'salva' && !favorito.configuracao) return
+    aplicarConfiguracao(favorito, origem === 'salva' ? favorito.configuracao : undefined)
+    setOrigemConfiguracao(origem)
+    setAvisoFavorito('')
+  }
+  const faltaEscolher = !!favoritoInicial && !origemConfiguracao
+  const favoritoDoCiclo = favoritos.find((f) => f.id === idFavorito) ?? favoritoInicial
 
   const remoto = rede?.papel === 'principal'
   const consultando = remoto && (!nomesDestino || nomesDestino.pcId !== pcDestino)
@@ -516,13 +534,33 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
       const lista = await chamar<FavoritoPerfil[]>('salvarFavoritoPerfil', nomeFavorito, o.site, configuracaoFavorito(opcoes), idFavorito)
       aoAtualizarFavoritos(lista)
       setIdFavorito(lista[0]?.id)
+      if (lista[0]) muda({ nomeBase: lista[0].nome })
       setAvisoFavorito('Link e configuração salvos.')
     } catch (e) { setAvisoFavorito(String(e instanceof Error ? e.message : e)) }
     finally { setSalvandoFavorito(false) }
   }
 
   return (
-    <Modal titulo="Criar perfis em massa" sub="Os perfis são criados direto no Dolphin Anty do computador escolhido." aoFechar={() => !criando && !iniciando && !salvandoFavorito && aoFechar()}>
+    <Modal titulo={favoritoInicial ? 'Novo ciclo' : 'Criar perfis em massa'}
+      sub={favoritoInicial?.nome ?? 'Os perfis são criados direto no Dolphin Anty do computador escolhido.'}
+      aoFechar={() => !criando && !iniciando && !salvandoFavorito && aoFechar()}>
+      {favoritoInicial && <section className="painel">
+        <strong>Qual configuração você quer usar?</strong>
+        <div className="escolhas">
+          <button className={`btn ${origemConfiguracao === 'salva' ? 'primario' : ''}`} aria-pressed={origemConfiguracao === 'salva'}
+            disabled={!favoritoDoCiclo?.configuracao || criando || iniciando || salvandoFavorito}
+            onClick={() => escolherConfiguracao('salva')}>Usar configuração salva</button>
+          <button className={`btn ${origemConfiguracao === 'nova' ? 'primario' : ''}`} aria-pressed={origemConfiguracao === 'nova'}
+            disabled={criando || iniciando || salvandoFavorito}
+            onClick={() => escolherConfiguracao('nova')}>Montar nova configuração</button>
+        </div>
+        {!favoritoDoCiclo?.configuracao && <span className="dica">Este favorito ainda tem apenas o link salvo.</span>}
+      </section>}
+      {faltaEscolher ? (
+        <div className="linha" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn" onClick={aoFechar}>Cancelar</button>
+        </div>
+      ) : <>
       {rede?.papel === 'principal' && (
         <div className="campo">
           Escolha o computador para esta criação
@@ -543,15 +581,15 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
       {erroInicio && <div className="aviso" style={{ color: '#ffb3c1' }}>{erroInicio}</div>}
       <section className="painel">
         <label className="campo">Site ao abrir
-          <input placeholder={cfg?.siteInicial ?? 'https://exemplo.com'} value={o.site} disabled={criando || iniciando || salvandoFavorito} onChange={(e) => {
+          <input placeholder={cfg?.siteInicial ?? 'https://exemplo.com'} value={o.site} readOnly={!!favoritoInicial} disabled={criando || iniciando || salvandoFavorito} onChange={(e) => {
             setIdFavorito(undefined); setNomeFavorito(''); setAvisoFavorito(''); muda({ site: e.target.value })
           }} />
         </label>
-        {favoritos.length > 0 && <div className="escolhas" aria-label="Escolher favorito">
+        {!favoritoInicial && favoritos.length > 0 && <div className="escolhas" aria-label="Escolher favorito">
           {favoritos.map((f) => <button key={f.id} type="button" className={`btn pequeno ${f.id === idFavorito ? 'primario' : ''}`} disabled={criando || iniciando || salvandoFavorito} onClick={() => aplicarFavorito(f)}>{f.nome}</button>)}
         </div>}
         <div className="linha" style={{ flexWrap: 'wrap' }}>
-          <input className="solto" aria-label="Nome do favorito" placeholder="Nome do favorito" value={nomeFavorito} disabled={salvandoFavorito} onChange={(e) => setNomeFavorito(e.target.value)} />
+          {!favoritoInicial && <input className="solto" aria-label="Nome do favorito" placeholder="Nome do favorito" value={nomeFavorito} disabled={salvandoFavorito} onChange={(e) => setNomeFavorito(e.target.value)} />}
           <button className="btn pequeno" disabled={criando || iniciando || salvandoFavorito || !o.site?.trim() || !nomeFavorito.trim() || !o.nomeBase.trim() || cicloInvalido || porcInvalida || tempoInvalido || f5Invalido || pausaInvalida} onClick={salvarFavorito}>
             {idFavorito ? 'Atualizar configuração' : 'Salvar link e configuração'}
           </button>
@@ -559,18 +597,20 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
         {avisoFavorito && <div className="dica" role="status">{avisoFavorito}</div>}
       </section>
       <div className="grade-campos">
-        <label className="campo">Quantidade<input type="number" min={1} max={LIMITE_PLANO} value={o.quantidade} onChange={(e) => muda({ quantidade: Math.min(LIMITE_PLANO, Math.max(1, Math.trunc(Number(e.target.value)))) })} /></label>
-        <label className="campo">Nome base<input value={o.nomeBase} onChange={(e) => muda({ nomeBase: e.target.value })} /></label>
+        <label className="campo">Quantidade de perfis<input type="number" min={1} max={LIMITE_PLANO} value={o.quantidade} onChange={(e) => muda({ quantidade: Math.min(LIMITE_PLANO, Math.max(1, Math.trunc(Number(e.target.value)))) })} /></label>
+        <label className="campo">Nome base<input value={o.nomeBase} readOnly={!!idFavorito} onChange={(e) => muda({ nomeBase: e.target.value })} /></label>
         <label className="campo">Começar do número<input type="number" min={1} value={o.comecarDe} onChange={(e) => muda({ comecarDe: Math.max(1, Number(e.target.value)) })} /></label>
       </div>
       <div className="aviso">
-        Nomes do lote <strong>{o.nomeBase} {o.comecarDe}</strong>, <strong>{o.nomeBase} {o.comecarDe + 1}</strong> … <strong>{o.nomeBase} {o.comecarDe + o.quantidade - 1}</strong>
+        {o.quantidade === 1 ? 'Nome do perfil ' : 'Nomes do lote '}
+        <strong>{nomesDoLote[0]}</strong>
+        {o.quantidade > 1 && <> até <strong>{nomesDoLote.at(-1)}</strong></>}
       </div>
 
       <div className="campo">
         Proxy
         <div className="escolhas">
-          {([['nenhum', 'Sem proxy'], ['mesmo', 'Mesmo para todos'], ['lista', 'Lista (1 por perfil)']] as const).map(([v, t]) => (
+          {([['nenhum', favoritoInicial ? 'Manter proxies existentes' : 'Sem proxy'], ['mesmo', 'Mesmo para todos'], ['lista', 'Lista (1 por perfil)']] as const).map(([v, t]) => (
             <label key={v} className={`escolha ${o.modoProxy === v ? 'marcada' : ''}`}>
               <input type="radio" name="modoProxy" checked={o.modoProxy === v} onChange={() => muda({ modoProxy: v })} />
               {t}
@@ -578,6 +618,7 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
           ))}
         </div>
       </div>
+      {favoritoInicial && o.modoProxy === 'nenhum' && <span className="dica">Os perfis novos serão criados sem proxy.</span>}
       {o.modoProxy !== 'nenhum' && (
         <label className="campo">
           Tipo
@@ -859,6 +900,7 @@ function CriarEmMassa({ perfis, favoritos, favoritoInicial, aoAtualizarFavoritos
             {favoritoInicial && o.abrirAoCriar ? 'Iniciar novo ciclo' : `${o.abrirAoCriar ? 'Criar e abrir' : 'Criar'} ${o.quantidade} perfis`}
           </button>
       </div>
+      </>}
     </Modal>
   )
 }
