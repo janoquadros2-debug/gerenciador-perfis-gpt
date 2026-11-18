@@ -4,6 +4,7 @@ import type { CanalObs, ConfigObs, StatusObs } from '../../../shared/types'
 import { chamar } from '../api'
 import { confirmar } from '../confirmar'
 import { Chave } from '../componentes'
+import { LivesVps } from './LivesVps'
 
 const limpar = (e: any) => String(e?.message ?? e).replace(/^Error invoking remote method 'chamar': Error: /, '')
 const duracao = (s: number) => {
@@ -71,6 +72,8 @@ export function Lives() {
           </div>
         )}
       </div>
+
+      <LivesVps />
 
       {aviso && <div className="aviso" style={{ color: '#ffb3c1' }}>{aviso}</div>}
 

@@ -4,7 +4,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FavoritoPerfil, ConfigRede, Configuracoes, FluxoIA, OpcoesCriacaoMassa, Proxy, Sugestao, RegistroOperacao, RecursosExtras } from '../shared/types'
 
+import type { LiveVps } from '../shared/lives-vps'
+
 interface Dados {
+  livesVps?: LiveVps[]
   config: Configuracoes
   favoritosPerfis?: FavoritoPerfil[]
   operacoes?: RegistroOperacao[]
@@ -232,6 +235,17 @@ export const store = {
       salvarAgora()
     } catch (e) {
       dados.favoritosPerfis = anteriores
+      throw e
+    }
+  },
+  get livesVps() { return dados.livesVps ?? [] },
+  salvarLivesVps(lista: LiveVps[]) {
+    const anteriores = dados.livesVps
+    dados.livesVps = lista
+    try {
+      salvarAgora()
+    } catch (e) {
+      dados.livesVps = anteriores
       throw e
     }
   },
