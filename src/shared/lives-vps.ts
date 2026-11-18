@@ -43,3 +43,30 @@ export interface EstadoLiveVps {
   ligada: boolean
   destinos: { plataforma: string; estado: string }[]
 }
+
+export interface ItemAgendaVps {
+  liveId: string
+  fila: 1 | 2
+  minutos: number
+}
+
+export interface AgendaVpsEntrada {
+  itens: ItemAgendaVps[]
+  senhas: Record<string, string>
+  twitchClientId: string
+  twitchSegredo: string
+  iniciarEm?: number
+}
+
+export interface EstadoAgendaVps {
+  executando: boolean
+  iniciarEm?: number
+  filas: {
+    fila: 1 | 2
+    etapa: 'aguardando' | 'iniciando' | 'ao-vivo' | 'encerrando' | 'concluida' | 'cancelada' | 'falha'
+    live?: string
+    terminaEm?: number
+    detalhe?: string
+  }[]
+  eventos: { hora: number; fila: 1 | 2; texto: string }[]
+}

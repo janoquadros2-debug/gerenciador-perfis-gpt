@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { EstadoLiveVps, LiveVps, LiveVpsEntrada } from '../../../shared/lives-vps'
 import { chamar } from '../api'
 import { confirmar } from '../confirmar'
+import { AgendaLivesVps } from './AgendaLivesVps'
 
 const vazio: LiveVpsEntrada = { vps: '', painel: '', live: '', canal: '' }
 const campos: { chave: keyof LiveVpsEntrada; rotulo: string; exemplo: string }[] = [
@@ -90,6 +91,7 @@ export function LivesVps() {
   }
 
   return (
+    <>
     <section className="painel">
       <h2>Lives das VPS</h2>
       <p className="dica">Vincule cada live cadastrada no seu painel ao canal público da Twitch.</p>
@@ -138,5 +140,7 @@ export function LivesVps() {
         </article>
       ))}
     </section>
+    <AgendaLivesVps catalogo={lista ?? []} />
+    </>
   )
 }

@@ -1,5 +1,6 @@
+import { AgendaVps } from './agenda-vps'
 import { consultarLiveVps } from './painel-vps'
-import { normalizarLiveVps, type LiveVpsEntrada } from '../shared/lives-vps'
+import { normalizarLiveVps, type AgendaVpsEntrada, type LiveVpsEntrada } from '../shared/lives-vps'
 // Ponto de partida do programa: cria a janela e liga a interface ao motor.
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
 import fs from 'node:fs'
@@ -27,6 +28,7 @@ import type { ConfigRede, EntradaLog } from '../shared/types'
 
 let janela: BrowserWindow | null = null
 const motor = new Motor()
+const agendaVps = new AgendaVps()
 
 function enviarTela(canal: string, dado: unknown) {
   janela?.webContents.send(canal, dado)
@@ -163,6 +165,9 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     return { cancelado: false, caminho: r.filePath }
   },
 
+  estadoAgendaVps: () => agendaVps.estado(),
+  iniciarAgendaVps: (entrada: AgendaVpsEntrada) => agendaVps.iniciar(entrada, store.livesVps),
+  cancelarAgendaVps: () => agendaVps.cancelar(),
   listarLivesVps: () => store.livesVps,
   testarLiveVps: (id: string, senha: string) => {
     const live = store.livesVps.find((item) => item.id === id)
@@ -615,6 +620,7 @@ const LOCAIS = new Set([
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
   'sunoJaSalvos', 'sunoSalvar', 'sunoLog', 'sunoStatus', 'sunoEntrar', 'sunoAbrir', 'sunoFechar', 'sunoApi', 'sunoPreencher', 'sunoPedido', 'sunoEsquecerPedido', 'sunoGuardarSozinho', 'sunoNovas', 'sunoPuxarVistas',
   'hardwareLocal', 'hardwareTodos', 'diagnosticoRede',
+  'estadoAgendaVps', 'iniciarAgendaVps', 'cancelarAgendaVps',
   'listarLivesVps', 'testarLiveVps', 'salvarLiveVps', 'removerLiveVps',
   'obsConfig', 'salvarObsConfig', 'obsStatus', 'obsAbrir', 'obsCena', 'obsPrincipal', 'obsCanal', 'obsTodos', 'promptConfig', 'salvarPromptConfig', 'gerarPrompt'
 ])
