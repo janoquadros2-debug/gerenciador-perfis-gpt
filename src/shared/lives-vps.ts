@@ -56,6 +56,7 @@ export interface AgendaVpsEntrada {
   twitchClientId: string
   twitchSegredo: string
   iniciarEm?: number
+  whatsapp?: WhatsAppAgendaVps
 }
 
 export interface EstadoAgendaVps {
@@ -69,4 +70,17 @@ export interface EstadoAgendaVps {
     detalhe?: string
   }[]
   eventos: { hora: number; fila: 1 | 2; texto: string }[]
+}
+
+export interface PreferenciasAgendaVps {
+  itens: ItemAgendaVps[]
+  twitchClientId: string
+}
+
+export interface WhatsAppAgendaVps {
+  telefoneId: string
+  destinatario: string
+  token: string
+  modelo: string
+  idioma: string
 }

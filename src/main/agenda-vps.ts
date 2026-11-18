@@ -2,35 +2,47 @@ import { setTimeout as esperar } from 'node:timers/promises'
 import type { AgendaVpsEntrada, EstadoAgendaVps, ItemAgendaVps, LiveVps } from '../shared/lives-vps'
 import { painelVps } from './painel-vps'
 import { twitchLives } from './twitch-lives'
+import { avisosWhatsApp } from './whatsapp-agenda'
 
 type Etapa = EstadoAgendaVps['filas'][number]
 const CONFIRMACAO_MS = 90_000
 const INTERVALO_MS = 4000
 const mensagem = (e: unknown) => e instanceof Error ? e.message : 'Erro inesperado.'
 
+export function montarItensAgenda(itens: ItemAgendaVps[], catalogo: LiveVps[]) {
+  if (!Array.isArray(itens) || !itens.length || itens.length > 50)
+    throw new Error('Selecione de 1 a 50 transmissões.')
+  const vinculos = new Map(catalogo.map((live) => [live.id, live]))
+  return itens.map((item) => {
+    const live = vinculos.get(item.liveId)
+    if (!live || ![1, 2].includes(item.fila) || !Number.isInteger(item.minutos) || item.minutos < 1 || item.minutos > 1440)
+      throw new Error('Cada transmissão deve ter uma fila e duração entre 1 e 1.440 minutos.')
+    return { liveId: item.liveId, fila: item.fila, minutos: item.minutos, live }
+  })
+}
+
 export class AgendaVps {
   private estadoAtual: EstadoAgendaVps = { executando: false, filas: [], eventos: [] }
   private cancelarAtual?: AbortController
+  private execucao?: Promise<void>
+  private enviarAviso?: ReturnType<typeof avisosWhatsApp>
+  private filaAvisos: Promise<void> = Promise.resolve()
 
   estado() { return this.estadoAtual }
   cancelar() { this.cancelarAtual?.abort() }
+  async cancelarEAguardar() {
+    this.cancelar()
+    await this.execucao
+  }
 
   iniciar(entrada: AgendaVpsEntrada, catalogo: LiveVps[]) {
     if (this.estadoAtual.executando) throw new Error('Já existe um agendamento rodando.')
-    if (!Array.isArray(entrada.itens) || !entrada.itens.length || entrada.itens.length > 50)
-      throw new Error('Selecione de 1 a 50 transmissões.')
     if (!entrada.twitchClientId?.trim() || !entrada.twitchSegredo?.trim())
       throw new Error('Informe o Client ID e o Client Secret da Twitch.')
     const iniciarEm = entrada.iniciarEm
     if (iniciarEm !== undefined && (!Number.isFinite(iniciarEm) || iniciarEm <= Date.now() || iniciarEm - Date.now() > 14 * 86400_000))
       throw new Error('O horário de início deve estar nos próximos 14 dias.')
-    const vinculos = new Map(catalogo.map((live) => [live.id, live]))
-    const itens = entrada.itens.map((item) => {
-      const live = vinculos.get(item.liveId)
-      if (!live || ![1, 2].includes(item.fila) || !Number.isFinite(item.minutos) || item.minutos < 1 || item.minutos > 1440)
-        throw new Error('Cada transmissão deve ter uma fila e duração entre 1 e 1.440 minutos.')
-      return { ...item, live }
-    })
+    const itens = montarItensAgenda(entrada.itens, catalogo)
     const origens = new Map<string, ReturnType<typeof painelVps>>()
     const filasDosCanais = new Map<string, number>()
     const filasDasLives = new Map<string, number>()
@@ -47,6 +59,7 @@ export class AgendaVps {
       if (!origens.has(origem)) origens.set(origem, painelVps(origem, entrada.senhas[origem]))
     }
     const online = twitchLives(entrada.twitchClientId.trim(), entrada.twitchSegredo.trim())
+    this.enviarAviso = entrada.whatsapp ? avisosWhatsApp(entrada.whatsapp) : undefined
     const controlador = new AbortController()
     this.cancelarAtual = controlador
     const filas: Etapa[] = ([1, 2] as const)
@@ -68,19 +81,37 @@ export class AgendaVps {
         for (const fila of filas) this.registrar(fila, controlador.signal.aborted ? 'cancelada' : 'falha',
           controlador.signal.aborted ? 'Fila cancelada antes de começar.' : mensagem(e))
       } finally {
+        await this.filaAvisos
+        this.enviarAviso = undefined
         this.estadoAtual.executando = false
         this.estadoAtual.iniciarEm = undefined
         this.cancelarAtual = undefined
+        this.execucao = undefined
       }
     }
-    void executar()
+    this.execucao = executar()
     return this.estadoAtual
   }
 
   private registrar(fila: Etapa, etapa: Etapa['etapa'], detalhe: string) {
     fila.etapa = etapa
     fila.detalhe = detalhe
-    this.estadoAtual.eventos.unshift({ hora: Date.now(), fila: fila.fila, texto: detalhe })
+    this.adicionarEvento(fila.fila, detalhe)
+    const enviar = this.enviarAviso
+    if (enviar && ['ao-vivo', 'falha', 'concluida', 'cancelada'].includes(etapa)) {
+      this.filaAvisos = this.filaAvisos.then(async () => {
+        try {
+          await enviar(`Fila ${fila.fila}. ${detalhe}`)
+          this.adicionarEvento(fila.fila, 'Aviso aceito pela API do WhatsApp.')
+        } catch (e) {
+          this.adicionarEvento(fila.fila, `Falha no aviso do WhatsApp. ${mensagem(e)}`)
+        }
+      })
+    }
+  }
+
+  private adicionarEvento(fila: 1 | 2, texto: string) {
+    this.estadoAtual.eventos.unshift({ hora: Date.now(), fila, texto })
     this.estadoAtual.eventos.length = Math.min(this.estadoAtual.eventos.length, 200)
   }
 
