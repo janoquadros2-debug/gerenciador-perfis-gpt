@@ -1,3 +1,5 @@
+import { consultarLiveVps } from './painel-vps'
+import { normalizarLiveVps, type LiveVpsEntrada } from '../shared/lives-vps'
 // Ponto de partida do programa: cria a janela e liga a interface ao motor.
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
 import fs from 'node:fs'
@@ -159,6 +161,27 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     fs.copyFileSync(origem, r.filePath)
     logOk('Backup', 'Configurações do aplicativo exportadas para uma cópia local.')
     return { cancelado: false, caminho: r.filePath }
+  },
+
+  listarLivesVps: () => store.livesVps,
+  testarLiveVps: (id: string, senha: string) => {
+    const live = store.livesVps.find((item) => item.id === id)
+    if (!live) throw new Error('Live cadastrada não encontrada.')
+    return consultarLiveVps(live.painel, live.live, senha)
+  },
+  salvarLiveVps: (entrada: LiveVpsEntrada, id?: string) => {
+    const vinculada = normalizarLiveVps(entrada)
+    const lista = store.livesVps
+    if (id && !lista.some((live) => live.id === id)) throw new Error('Live cadastrada não encontrada.')
+    if (lista.some((live) => live.id !== id && live.painel === vinculada.painel && live.live === vinculada.live))
+      throw new Error('Essa live já está cadastrada para esse painel.')
+    const item = { ...vinculada, id: id ?? randomUUID() }
+    store.salvarLivesVps(id ? lista.map((live) => live.id === id ? item : live) : [...lista, item])
+    return store.livesVps
+  },
+  removerLiveVps: (id: string) => {
+    store.salvarLivesVps(store.livesVps.filter((live) => live.id !== id))
+    return store.livesVps
   },
 
   listarFavoritosPerfis: () => store.favoritosPerfis,
@@ -592,6 +615,7 @@ const LOCAIS = new Set([
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
   'sunoJaSalvos', 'sunoSalvar', 'sunoLog', 'sunoStatus', 'sunoEntrar', 'sunoAbrir', 'sunoFechar', 'sunoApi', 'sunoPreencher', 'sunoPedido', 'sunoEsquecerPedido', 'sunoGuardarSozinho', 'sunoNovas', 'sunoPuxarVistas',
   'hardwareLocal', 'hardwareTodos', 'diagnosticoRede',
+  'listarLivesVps', 'testarLiveVps', 'salvarLiveVps', 'removerLiveVps',
   'obsConfig', 'salvarObsConfig', 'obsStatus', 'obsAbrir', 'obsCena', 'obsPrincipal', 'obsCanal', 'obsTodos', 'promptConfig', 'salvarPromptConfig', 'gerarPrompt'
 ])
 
