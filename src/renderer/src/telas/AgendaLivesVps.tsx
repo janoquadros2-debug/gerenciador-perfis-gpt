@@ -137,7 +137,7 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
         {itens.length > 0 && <div className="grade-campos">
           <label className="campo">Horário de início (opcional)<input type="datetime-local" value={inicio} disabled={travado} onChange={(e) => setInicio(e.target.value)} /></label>
           {[...origens].map(([origem, nome]) => (
-            <label className="campo" key={origem}>Senha do painel · {nome}
+            <label className="campo" key={origem}>Senha ou token do painel · {nome}
               <input type="password" autoComplete="off" required value={senhas[origem] ?? ''} disabled={travado}
                 onChange={(e) => setSenhas({ ...senhas, [origem]: e.target.value })} />
             </label>

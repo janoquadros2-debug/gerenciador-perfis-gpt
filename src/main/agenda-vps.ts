@@ -133,7 +133,7 @@ export class AgendaVps {
         tentouIniciar = true
         await painel.comando(id, 'iniciar')
         const consultar = async () => {
-          const atual = await painel.consultar(live.live)
+          const atual = await painel.consultar(live.live, id)
           if (atual.id !== id) throw new Error('O ID da live no painel mudou.')
           return atual
         }
@@ -164,13 +164,13 @@ export class AgendaVps {
       if (tentouIniciar && id) {
         this.registrar(fila, 'encerrando', `Encerrando ${live.live}.`)
         try {
-          const estado = await painel.consultar(live.live)
+          const estado = await painel.consultar(live.live, id)
           if (estado.id !== id) throw new Error('O ID da live no painel mudou.')
           if (estado.ligada) await painel.comando(id, 'parar')
           await this.confirmar(async () => {
-            const atual = await painel.consultar(live.live)
+            const atual = await painel.consultar(live.live, id)
             if (atual.id !== id) throw new Error('O ID da live no painel mudou.')
-            return !atual.ligada && !atual.destinos.some((d) => ['ao_vivo', 'conectando', 'reconectando'].includes(d.estado))
+            return !atual.ligada && !atual.destinos.some((d) => ['ao_vivo', 'conectando', 'reconectando', 'encerrando'].includes(d.estado))
           }, 'O painel não confirmou a saída do ar.')
           this.registrar(fila, 'aguardando', `${live.live}: encerramento confirmado.`)
         } catch (e) {
