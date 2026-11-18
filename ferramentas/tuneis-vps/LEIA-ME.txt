@@ -1,0 +1,21 @@
+TUNEIS AUTOMATICOS PARA VPS
+
+No Windows, execute Configurar-tunel-VPS.cmd uma vez para cada VPS.
+Informe o IP ou nome da VPS, seu usuario e as portas. Se o SSH pedir, use
+a senha SSH para autorizar a chave publica inicial. Essa senha nao e salva.
+
+Para reaproveitar um cadastro existente do Gerenciador, use a mesma porta
+local depois de fechar o tunel manual. Exemplo: VPS escutando em 8081,
+com endereco local http://127.0.0.1:18081. Cada VPS precisa de uma porta
+local propria, como 18081, 18082, 18083. A porta na VPS pode ser igual.
+
+O assistente cria uma chave dedicada por tunel. A autorizacao na VPS e
+limitada ao encaminhamento para o painel local. A tarefa agendada roda
+em segundo plano no login do Windows e reconecta apos quedas.
+O teste de acesso nao precisa da senha do painel, que e usada no Gerenciador.
+
+Se houver falha, consulte o arquivo VPS-PORTA.log na pasta
+%LOCALAPPDATA%\Gerenciador-GPT-Tuneis (troque PORTA pela porta local).
+A tarefa aparece no Agendador de Tarefas como "Gerenciador GPT - Tunel VPS PORTA".
+Para revogar a chave, remova a entrada com o comentario gpt-painel-vps-PORTA
+do arquivo ~/.ssh/authorized_keys da VPS e encerre a tarefa no Windows.

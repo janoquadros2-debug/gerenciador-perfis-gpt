@@ -21,8 +21,18 @@ jobs:
           npm run typecheck
           EDICAO=completa npm run build
           npx electron-builder --win --x64 --dir --publish never -c.directories.output=dist/teste
+      - name: Validar e incluir assistente de túneis
+        shell: powershell
+        run: |
+          foreach ($arquivo in Get-ChildItem ferramentas/tuneis-vps/*.ps1) {
+            $tokens = $null
+            $erros = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($arquivo.FullName, [ref]$tokens, [ref]$erros) | Out-Null
+            if ($erros.Count -gt 0) { throw ($erros | Out-String) }
+          }
+          Copy-Item -Recurse ferramentas/tuneis-vps dist/teste/win-unpacked/
       - uses: actions/upload-artifact@v4
         with:
-          name: Gerenciador-GPT-Beta-Painel-Integrado-Windows
+          name: Gerenciador-GPT-Beta-VPS-Windows
           path: dist/teste/win-unpacked/
           if-no-files-found: error

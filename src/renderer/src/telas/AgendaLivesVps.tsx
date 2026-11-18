@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import type { EstadoAgendaVps, ItemAgendaVps, LiveVps, PreferenciasAgendaVps, WhatsAppAgendaVps } from '../../../shared/lives-vps'
+import type { EstadoAgendaVps, GrupoPainelVps, ItemAgendaVps, LiveVps, PreferenciasAgendaVps, WhatsAppAgendaVps } from '../../../shared/lives-vps'
 import { chamar } from '../api'
 import { confirmar } from '../confirmar'
 
@@ -19,7 +19,11 @@ const etapas = {
 const erroTexto = (e: unknown) =>
   String(e instanceof Error ? e.message : e).replace(/^Error invoking remote method 'chamar': (?:Error: )?/, '')
 
-export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
+export function AgendaLivesVps({ catalogo, grupos, credenciaisGuardadas }: {
+  catalogo: LiveVps[]
+  grupos: GrupoPainelVps[]
+  credenciaisGuardadas: string[]
+}) {
   const [itens, setItens] = useState<(ItemAgendaVps & { ordem: number })[]>([])
   const [proximaOrdem, setProximaOrdem] = useState(1)
   const [selecionada, setSelecionada] = useState('')
@@ -36,7 +40,10 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
   const origens = new Map<string, string>()
   for (const item of itens) {
     const live = catalogo.find((c) => c.id === item.liveId)
-    if (live) origens.set(new URL(live.painel).origin, live.vps)
+    if (live) {
+      const origem = new URL(live.painel).origin
+      origens.set(origem, grupos.find((g) => g.origem === origem)?.nome ?? live.vps)
+    }
   }
 
   useEffect(() => {
@@ -111,7 +118,11 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
           <label className="campo">Live cadastrada
             <select value={selecionada} disabled={travado} onChange={(e) => setSelecionada(e.target.value)}>
               <option value="">Escolher live</option>
-              {catalogo.map((c) => <option key={c.id} value={c.id}>{c.live} · {c.vps}</option>)}
+              {grupos.map((grupo) => (
+                <optgroup key={grupo.origem} label={`${grupo.nome} · ${new URL(grupo.origem).host}`}>
+                  {grupo.lives.map((live) => <option key={live.id} value={live.id}>{live.live}</option>)}
+                </optgroup>
+              ))}
             </select>
           </label>
           <button type="button" className="btn" disabled={travado || !selecionada} onClick={() => {
@@ -138,7 +149,9 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
           <label className="campo">Horário de início (opcional)<input type="datetime-local" value={inicio} disabled={travado} onChange={(e) => setInicio(e.target.value)} /></label>
           {[...origens].map(([origem, nome]) => (
             <label className="campo" key={origem}>Senha ou token do painel · {nome}
-              <input type="password" autoComplete="off" required value={senhas[origem] ?? ''} disabled={travado}
+              <input type="password" autoComplete="off" required={!credenciaisGuardadas.includes(origem)}
+                placeholder={credenciaisGuardadas.includes(origem) ? 'Credencial guardada neste PC' : undefined}
+                value={senhas[origem] ?? ''} disabled={travado}
                 onChange={(e) => setSenhas({ ...senhas, [origem]: e.target.value })} />
             </label>
           ))}
