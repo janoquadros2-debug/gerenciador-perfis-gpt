@@ -58,7 +58,7 @@ export class AgendaVps {
       filasDasLives.set(chave, fila)
       if (!origens.has(origem)) origens.set(origem, painelVps(origem, entrada.senhas[origem]))
     }
-    const online = twitchLives(entrada.twitchClientId.trim(), entrada.twitchSegredo.trim())
+    const twitch = twitchLives(entrada.twitchClientId.trim(), entrada.twitchSegredo.trim())
     this.enviarAviso = entrada.whatsapp ? avisosWhatsApp(entrada.whatsapp) : undefined
     const controlador = new AbortController()
     this.cancelarAtual = controlador
@@ -68,11 +68,13 @@ export class AgendaVps {
     this.estadoAtual = { executando: true, iniciarEm, filas, eventos: [] }
     const executar = async () => {
       try {
+        await twitch.autenticar()
+        controlador.signal.throwIfAborted()
         if (iniciarEm) await esperar(Math.max(0, iniciarEm - Date.now()), undefined, { signal: controlador.signal })
         this.estadoAtual.iniciarEm = undefined
         await Promise.all(filas.map(async (fila) => {
           try {
-            await this.executarFila(fila, itens.filter((item) => item.fila === fila.fila), origens, online, controlador.signal)
+            await this.executarFila(fila, itens.filter((item) => item.fila === fila.fila), origens, twitch.consultar, controlador.signal)
           } catch (e) {
             this.registrar(fila, 'falha', mensagem(e))
           }

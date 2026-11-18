@@ -14,7 +14,17 @@ export function twitchLives(clientId: string, segredo: string) {
       redirect: 'error',
       signal: AbortSignal.timeout(10_000)
     })
-    if (!r.ok) throw new Error(`A Twitch recusou as credenciais (HTTP ${r.status}).`)
+    if (!r.ok) {
+      const erro = await r.json().catch(() => null) as { message?: string } | null
+      const detalhe = typeof erro?.message === 'string' ? erro.message.toLowerCase() : ''
+      if (/invalid client secret|client secret.*(?:invalid|does not match)/.test(detalhe))
+        throw new Error('Client Secret inválido. Use o segredo atual da mesma aplicação do Client ID.')
+      if (/invalid client id|client (?:does not|doesn't) exist|client id.*(?:unknown|invalid)/.test(detalhe))
+        throw new Error('Client ID inválido. Copie o identificador no Console da Twitch.')
+      if (r.status === 400 || r.status === 401)
+        throw new Error(`A Twitch recusou o par Client ID e Client Secret (HTTP ${r.status}). Confira a mesma aplicação confidencial.`)
+      throw new Error(`A Twitch não autorizou a conexão (HTTP ${r.status}).`)
+    }
     const dado = await r.json() as Token
     if (!dado.access_token || !dado.expires_in) throw new Error('A Twitch não devolveu um token válido.')
     token = dado.access_token
@@ -25,7 +35,7 @@ export function twitchLives(clientId: string, segredo: string) {
     renovando ??= autenticar().finally(() => { renovando = undefined })
     await renovando
   }
-  return async (canal: string): Promise<string | null> => {
+  const consultar = async (canal: string): Promise<string | null> => {
     const login = new URL(canal).pathname.slice(1)
     const url = new URL('https://api.twitch.tv/helix/streams')
     url.searchParams.set('user_login', login)
@@ -51,4 +61,5 @@ export function twitchLives(clientId: string, segredo: string) {
       throw new Error('A Twitch não devolveu uma transmissão válida.')
     return live.id
   }
+  return { autenticar: garantirToken, consultar }
 }
