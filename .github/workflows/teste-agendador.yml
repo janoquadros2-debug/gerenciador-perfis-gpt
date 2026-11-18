@@ -1,0 +1,28 @@
+name: Teste Windows do agendador
+on:
+  push:
+    branches: [teste-windows-agendador]
+    paths: [.github/workflows/teste-agendador.yml]
+permissions:
+  contents: read
+jobs:
+  zip:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - shell: bash
+        run: |
+          sed -i "s@app.setName('Gerenciador de Perfis GPT')@app.setName('Gerenciador GPT - Teste VPS')\napp.setPath('userData', path.join(app.getPath('appData'), 'Gerenciador GPT - Teste VPS'))@" src/main/index.ts
+          sed -i "s@^  iniciarAtualizacoes(@  if (false) iniciarAtualizacoes(@" src/main/index.ts
+          npm install --no-audit --no-fund
+          npm run typecheck
+          EDICAO=completa npm run build
+          npx electron-builder --win --x64 --dir --publish never -c.directories.output=dist/teste
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gerenciador-GPT-Teste-Agendador-Windows
+          path: dist/teste/win-unpacked/
+          if-no-files-found: error
