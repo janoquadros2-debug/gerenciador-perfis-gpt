@@ -126,7 +126,7 @@ export function LivesVps() {
           </div>
           {testando === item.id && (
             <form className="linha" style={{ flexWrap: 'wrap', alignItems: 'end' }} onSubmit={(e) => testar(e, item.id)}>
-              <label className="campo">Senha do painel
+              <label className="campo">Senha ou token do painel
                 <input type="password" autoComplete="off" value={senha} disabled={ocupado} onChange={(e) => setSenha(e.target.value)} />
               </label>
               <button type="submit" className="btn primario" disabled={ocupado || !senha.trim()}>Consultar estado</button>

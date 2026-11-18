@@ -25,8 +25,6 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
   const [selecionada, setSelecionada] = useState('')
   const [senhas, setSenhas] = useState<Record<string, string>>({})
   const [inicio, setInicio] = useState('')
-  const [clientId, setClientId] = useState('')
-  const [segredo, setSegredo] = useState('')
   const [estado, setEstado] = useState<EstadoAgendaVps>()
   const [pendente, setPendente] = useState(false)
   const [usarWhatsApp, setUsarWhatsApp] = useState(false)
@@ -52,8 +50,7 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
   }, [])
 
   const preferencias = (): PreferenciasAgendaVps => ({
-    itens: itens.map(({ liveId, fila, minutos }) => ({ liveId, fila, minutos })),
-    twitchClientId: clientId
+    itens: itens.map(({ liveId, fila, minutos }) => ({ liveId, fila, minutos }))
   })
   const configurar = async (acao: 'salvar' | 'carregar') => {
     setPendente(true)
@@ -71,7 +68,6 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
         }
         setItens(cfg.itens.map((item, i) => ({ ...item, ordem: i + 1 })))
         setProximaOrdem(cfg.itens.length + 1)
-        setClientId(cfg.twitchClientId)
         setAviso('Configuração carregada.')
       }
     } catch (e) {
@@ -88,12 +84,11 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
     setErro('')
     try {
       setEstado(await chamar<EstadoAgendaVps>('iniciarAgendaVps', {
-        ...preferencias(), senhas, twitchSegredo: segredo,
+        ...preferencias(), senhas,
         whatsapp: usarWhatsApp ? whatsapp : undefined,
         iniciarEm: inicio ? new Date(inicio).getTime() : undefined
       }))
       setSenhas({})
-      setSegredo('')
       setWhatsApp((atual) => ({ ...atual, token: '' }))
     } catch (e) {
       setErro(erroTexto(e))
@@ -108,7 +103,7 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
   return (
     <section className="painel">
       <h2>Lives agendadas</h2>
-      <p className="dica">Adicione as transmissões na ordem desejada. As duas filas avançam de forma independente. Mantenha o Gerenciador aberto durante a execução.</p>
+      <p className="dica">Adicione as transmissões na ordem desejada. As duas filas avançam de forma independente. O Gerenciador usa o estado do painel da VPS para confirmar a transmissão. Mantenha-o aberto durante a execução.</p>
       {aviso && <div className="dica" role="status">{aviso}</div>}
       {erro && <div className="aviso" role="alert">{erro}</div>}
       <form onSubmit={iniciar} style={{ display: 'grid', gap: 12 }}>
@@ -141,10 +136,8 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
         ))}
         {itens.length > 0 && <div className="grade-campos">
           <label className="campo">Horário de início (opcional)<input type="datetime-local" value={inicio} disabled={travado} onChange={(e) => setInicio(e.target.value)} /></label>
-          <label className="campo">Client ID da Twitch<input required value={clientId} disabled={travado} onChange={(e) => setClientId(e.target.value)} /></label>
-          <label className="campo">Client Secret da Twitch<input type="password" autoComplete="off" required value={segredo} disabled={travado} onChange={(e) => setSegredo(e.target.value)} /></label>
           {[...origens].map(([origem, nome]) => (
-            <label className="campo" key={origem}>Senha do painel · {nome}
+            <label className="campo" key={origem}>Senha ou token do painel · {nome}
               <input type="password" autoComplete="off" required value={senhas[origem] ?? ''} disabled={travado}
                 onChange={(e) => setSenhas({ ...senhas, [origem]: e.target.value })} />
             </label>

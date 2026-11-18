@@ -23,6 +23,6 @@ jobs:
           npx electron-builder --win --x64 --dir --publish never -c.directories.output=dist/teste
       - uses: actions/upload-artifact@v4
         with:
-          name: Gerenciador-GPT-Beta-Lives-Windows
+          name: Gerenciador-GPT-Beta-Painel-Integrado-Windows
           path: dist/teste/win-unpacked/
           if-no-files-found: error

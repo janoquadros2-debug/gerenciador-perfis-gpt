@@ -1,7 +1,6 @@
 import { setTimeout as esperar } from 'node:timers/promises'
 import type { AgendaVpsEntrada, EstadoAgendaVps, ItemAgendaVps, LiveVps } from '../shared/lives-vps'
 import { painelVps } from './painel-vps'
-import { twitchLives } from './twitch-lives'
 import { avisosWhatsApp } from './whatsapp-agenda'
 
 type Etapa = EstadoAgendaVps['filas'][number]
@@ -37,8 +36,6 @@ export class AgendaVps {
 
   iniciar(entrada: AgendaVpsEntrada, catalogo: LiveVps[]) {
     if (this.estadoAtual.executando) throw new Error('Já existe um agendamento rodando.')
-    if (!entrada.twitchClientId?.trim() || !entrada.twitchSegredo?.trim())
-      throw new Error('Informe o Client ID e o Client Secret da Twitch.')
     const iniciarEm = entrada.iniciarEm
     if (iniciarEm !== undefined && (!Number.isFinite(iniciarEm) || iniciarEm <= Date.now() || iniciarEm - Date.now() > 14 * 86400_000))
       throw new Error('O horário de início deve estar nos próximos 14 dias.')
@@ -58,7 +55,6 @@ export class AgendaVps {
       filasDasLives.set(chave, fila)
       if (!origens.has(origem)) origens.set(origem, painelVps(origem, entrada.senhas[origem]))
     }
-    const online = twitchLives(entrada.twitchClientId.trim(), entrada.twitchSegredo.trim())
     this.enviarAviso = entrada.whatsapp ? avisosWhatsApp(entrada.whatsapp) : undefined
     const controlador = new AbortController()
     this.cancelarAtual = controlador
@@ -68,11 +64,12 @@ export class AgendaVps {
     this.estadoAtual = { executando: true, iniciarEm, filas, eventos: [] }
     const executar = async () => {
       try {
+        controlador.signal.throwIfAborted()
         if (iniciarEm) await esperar(Math.max(0, iniciarEm - Date.now()), undefined, { signal: controlador.signal })
         this.estadoAtual.iniciarEm = undefined
         await Promise.all(filas.map(async (fila) => {
           try {
-            await this.executarFila(fila, itens.filter((item) => item.fila === fila.fila), origens, online, controlador.signal)
+            await this.executarFila(fila, itens.filter((item) => item.fila === fila.fila), origens, controlador.signal)
           } catch (e) {
             this.registrar(fila, 'falha', mensagem(e))
           }
@@ -116,7 +113,7 @@ export class AgendaVps {
   }
 
   private async executarFila(fila: Etapa, itens: (ItemAgendaVps & { live: LiveVps })[],
-    paineis: Map<string, ReturnType<typeof painelVps>>, online: (canal: string) => Promise<string | null>, sinal: AbortSignal
+    paineis: Map<string, ReturnType<typeof painelVps>>, sinal: AbortSignal
   ) {
     for (const { live, minutos } of itens) {
       if (sinal.aborted) break
@@ -128,28 +125,35 @@ export class AgendaVps {
       this.registrar(fila, 'iniciando', `Consultando ${live.live}.`)
       try {
         const estado = await painel.consultar(live.live)
-        if (estado.ligada || await online(live.canal)) throw new Error('A live já está ligada. Esta fila não assumiu seu controle.')
+        if (estado.ligada || estado.destinos.some((d) => d.estado === 'ao_vivo'))
+          throw new Error('A live já está ligada. Esta fila não assumiu seu controle.')
         if (!estado.destinos.length) throw new Error('O painel não retornou um destino ativo para esta live.')
         sinal.throwIfAborted()
         id = estado.id
         tentouIniciar = true
         await painel.comando(id, 'iniciar')
-        await this.confirmar(async () => {
-          const atual = await painel.consultar(live.live)
+        const consultar = async () => {
+          const atual = await painel.consultar(live.live, id)
           if (atual.id !== id) throw new Error('O ID da live no painel mudou.')
+          return atual
+        }
+        await this.confirmar(async () => {
+          const atual = await consultar()
           return atual.ligada && atual.destinos.some((d) => d.estado === 'ao_vivo')
-            ? online(live.canal) : null
-        }, true, sinal)
+        }, 'O painel não confirmou a entrada no ar.', sinal)
         fila.terminaEm = Date.now() + minutos * 60_000
-        this.registrar(fila, 'ao-vivo', `${live.live} confirmada pela Twitch.`)
+        this.registrar(fila, 'ao-vivo', `${live.live} no ar segundo o painel da VPS.`)
         let falhas = 0
         while (Date.now() < fila.terminaEm) {
           await esperar(Math.min(15_000, Math.max(0, fila.terminaEm - Date.now())), undefined, { signal: sinal })
           if (Date.now() >= fila.terminaEm) break
           let noAr = false
-          try { noAr = Boolean(await online(live.canal)) } catch { /* Uma consulta isolada pode falhar. */ }
+          try {
+            const atual = await consultar()
+            noAr = atual.ligada && atual.destinos.some((d) => d.estado === 'ao_vivo')
+          } catch { /* Uma consulta isolada pode falhar. */ }
           falhas = noAr ? 0 : falhas + 1
-          if (falhas >= 3) throw new Error('A Twitch deixou de confirmar a transmissão.')
+          if (falhas >= 3) throw new Error('O painel deixou de confirmar a transmissão.')
         }
         terminouNoPrazo = true
       } catch (e) {
@@ -160,14 +164,14 @@ export class AgendaVps {
       if (tentouIniciar && id) {
         this.registrar(fila, 'encerrando', `Encerrando ${live.live}.`)
         try {
-          const estado = await painel.consultar(live.live)
+          const estado = await painel.consultar(live.live, id)
           if (estado.id !== id) throw new Error('O ID da live no painel mudou.')
           if (estado.ligada) await painel.comando(id, 'parar')
           await this.confirmar(async () => {
-            const atual = await painel.consultar(live.live)
+            const atual = await painel.consultar(live.live, id)
             if (atual.id !== id) throw new Error('O ID da live no painel mudou.')
-            return atual.ligada || await online(live.canal) ? 'ativa' : null
-          }, false)
+            return !atual.ligada && !atual.destinos.some((d) => ['ao_vivo', 'conectando', 'reconectando', 'encerrando'].includes(d.estado))
+          }, 'O painel não confirmou a saída do ar.')
           this.registrar(fila, 'aguardando', `${live.live}: encerramento confirmado.`)
         } catch (e) {
           this.registrar(fila, 'falha', `${live.live}: ${mensagem(e)} A fila parou para conferir a transmissão.`)
@@ -181,13 +185,13 @@ export class AgendaVps {
       sinal.aborted ? 'Fila cancelada.' : 'Fila finalizada. Confira o histórico de execução.')
   }
 
-  private async confirmar(consultar: () => Promise<string | null>, entrada: boolean, sinal?: AbortSignal) {
+  private async confirmar(pronto: () => Promise<boolean>, erro: string, sinal?: AbortSignal) {
     const limite = Date.now() + CONFIRMACAO_MS
     do {
       sinal?.throwIfAborted()
-      if (Boolean(await consultar()) === entrada) return
+      if (await pronto()) return
       await esperar(INTERVALO_MS, undefined, { signal: sinal })
     } while (Date.now() < limite)
-    throw new Error(entrada ? 'A Twitch não confirmou a entrada no ar.' : 'A saída do ar não foi confirmada.')
+    throw new Error(erro)
   }
 }
