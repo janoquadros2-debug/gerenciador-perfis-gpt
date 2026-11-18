@@ -1,6 +1,6 @@
-import { AgendaVps } from './agenda-vps'
+import { AgendaVps, montarItensAgenda } from './agenda-vps'
 import { consultarLiveVps } from './painel-vps'
-import { normalizarLiveVps, type AgendaVpsEntrada, type LiveVpsEntrada } from '../shared/lives-vps'
+import { normalizarLiveVps, type AgendaVpsEntrada, type LiveVpsEntrada, type PreferenciasAgendaVps } from '../shared/lives-vps'
 // Ponto de partida do programa: cria a janela e liga a interface ao motor.
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
 import fs from 'node:fs'
@@ -166,6 +166,12 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   },
 
   estadoAgendaVps: () => agendaVps.estado(),
+  carregarPreferenciasAgendaVps: () => store.preferenciasAgendaVps,
+  salvarPreferenciasAgendaVps: (entrada: PreferenciasAgendaVps) => {
+    const itens = montarItensAgenda(entrada.itens, store.livesVps)
+      .map(({ liveId, fila, minutos }) => ({ liveId, fila, minutos }))
+    store.salvarPreferenciasAgendaVps({ itens, twitchClientId: entrada.twitchClientId.trim() })
+  },
   iniciarAgendaVps: (entrada: AgendaVpsEntrada) => agendaVps.iniciar(entrada, store.livesVps),
   cancelarAgendaVps: () => agendaVps.cancelar(),
   listarLivesVps: () => store.livesVps,
@@ -620,6 +626,7 @@ const LOCAIS = new Set([
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
   'sunoJaSalvos', 'sunoSalvar', 'sunoLog', 'sunoStatus', 'sunoEntrar', 'sunoAbrir', 'sunoFechar', 'sunoApi', 'sunoPreencher', 'sunoPedido', 'sunoEsquecerPedido', 'sunoGuardarSozinho', 'sunoNovas', 'sunoPuxarVistas',
   'hardwareLocal', 'hardwareTodos', 'diagnosticoRede',
+  'carregarPreferenciasAgendaVps', 'salvarPreferenciasAgendaVps',
   'estadoAgendaVps', 'iniciarAgendaVps', 'cancelarAgendaVps',
   'listarLivesVps', 'testarLiveVps', 'salvarLiveVps', 'removerLiveVps',
   'obsConfig', 'salvarObsConfig', 'obsStatus', 'obsAbrir', 'obsCena', 'obsPrincipal', 'obsCanal', 'obsTodos', 'promptConfig', 'salvarPromptConfig', 'gerarPrompt'
@@ -819,7 +826,17 @@ async function apagarPerfisAoSair() {
 }
 
 let saindo = false
+let encerrandoAgenda = false
 app.on('before-quit', async (e) => {
+  if (agendaVps.estado().executando) {
+    e.preventDefault()
+    if (encerrandoAgenda) return
+    encerrandoAgenda = true
+    await agendaVps.cancelarEAguardar().catch(() => undefined)
+    encerrandoAgenda = false
+    app.quit()
+    return
+  }
   salvarAgora()
   const cfg = store.config
   if (saindo || (!cfg.fecharTodosAoSair && !cfg.apagarAoSair)) return

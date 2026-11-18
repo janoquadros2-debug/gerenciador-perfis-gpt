@@ -1,7 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import type { EstadoAgendaVps, ItemAgendaVps, LiveVps } from '../../../shared/lives-vps'
+import type { EstadoAgendaVps, ItemAgendaVps, LiveVps, PreferenciasAgendaVps, WhatsAppAgendaVps } from '../../../shared/lives-vps'
 import { chamar } from '../api'
 import { confirmar } from '../confirmar'
+
+const whatsappInicial: WhatsAppAgendaVps = { telefoneId: '', destinatario: '', token: '', modelo: '', idioma: 'pt_BR' }
+const camposWhatsApp = [
+  ['telefoneId', 'ID do número remetente'],
+  ['destinatario', 'Número de destino com DDI'],
+  ['token', 'Token da Meta'],
+  ['modelo', 'Nome do modelo aprovado'],
+  ['idioma', 'Idioma do modelo']
+] as const
 
 const etapas = {
   aguardando: 'Aguardando', iniciando: 'Iniciando', 'ao-vivo': 'Ao vivo', encerrando: 'Encerrando',
@@ -20,6 +29,9 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
   const [segredo, setSegredo] = useState('')
   const [estado, setEstado] = useState<EstadoAgendaVps>()
   const [pendente, setPendente] = useState(false)
+  const [usarWhatsApp, setUsarWhatsApp] = useState(false)
+  const [whatsapp, setWhatsApp] = useState(whatsappInicial)
+  const [aviso, setAviso] = useState('')
   const [erro, setErro] = useState('')
   const ativo = !!estado?.executando
   const travado = ativo || pendente
@@ -39,6 +51,36 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
     return () => { ativa = false; clearInterval(id) }
   }, [])
 
+  const preferencias = (): PreferenciasAgendaVps => ({
+    itens: itens.map(({ liveId, fila, minutos }) => ({ liveId, fila, minutos })),
+    twitchClientId: clientId
+  })
+  const configurar = async (acao: 'salvar' | 'carregar') => {
+    setPendente(true)
+    setErro('')
+    setAviso('')
+    try {
+      if (acao === 'salvar') {
+        await chamar('salvarPreferenciasAgendaVps', preferencias())
+        setAviso('Configuração salva.')
+      } else {
+        const cfg = await chamar<PreferenciasAgendaVps | undefined>('carregarPreferenciasAgendaVps')
+        if (!cfg) {
+          setAviso('Ainda não há configuração salva.')
+          return
+        }
+        setItens(cfg.itens.map((item, i) => ({ ...item, ordem: i + 1 })))
+        setProximaOrdem(cfg.itens.length + 1)
+        setClientId(cfg.twitchClientId)
+        setAviso('Configuração carregada.')
+      }
+    } catch (e) {
+      setErro(erroTexto(e))
+    } finally {
+      setPendente(false)
+    }
+  }
+
   const iniciar = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (travado || !itens.length) return
@@ -46,12 +88,13 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
     setErro('')
     try {
       setEstado(await chamar<EstadoAgendaVps>('iniciarAgendaVps', {
-        itens: itens.map(({ liveId, fila, minutos }) => ({ liveId, fila, minutos })),
-        senhas, twitchClientId: clientId, twitchSegredo: segredo,
+        ...preferencias(), senhas, twitchSegredo: segredo,
+        whatsapp: usarWhatsApp ? whatsapp : undefined,
         iniciarEm: inicio ? new Date(inicio).getTime() : undefined
       }))
       setSenhas({})
       setSegredo('')
+      setWhatsApp((atual) => ({ ...atual, token: '' }))
     } catch (e) {
       setErro(erroTexto(e))
     } finally {
@@ -66,6 +109,7 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
     <section className="painel">
       <h2>Lives agendadas</h2>
       <p className="dica">Adicione as transmissões na ordem desejada. As duas filas avançam de forma independente. Mantenha o Gerenciador aberto durante a execução.</p>
+      {aviso && <div className="dica" role="status">{aviso}</div>}
       {erro && <div className="aviso" role="alert">{erro}</div>}
       <form onSubmit={iniciar} style={{ display: 'grid', gap: 12 }}>
         <div className="linha" style={{ flexWrap: 'wrap', alignItems: 'end' }}>
@@ -106,7 +150,24 @@ export function AgendaLivesVps({ catalogo }: { catalogo: LiveVps[] }) {
             </label>
           ))}
         </div>}
-        <div className="linha">
+        {itens.length > 0 && <label className="linha">
+          <input type="checkbox" checked={usarWhatsApp} disabled={travado} onChange={(e) => setUsarWhatsApp(e.target.checked)} />
+          Enviar avisos pelo WhatsApp
+        </label>}
+        {itens.length > 0 && usarWhatsApp && <>
+          <p className="dica">Use um modelo aprovado pela Meta com uma variável no corpo da mensagem.</p>
+          <div className="grade-campos">
+            {camposWhatsApp.map(([chave, rotulo]) => (
+              <label className="campo" key={chave}>{rotulo}
+                <input type={chave === 'token' ? 'password' : 'text'} autoComplete="off" disabled={travado} required
+                  value={whatsapp[chave]} onChange={(e) => setWhatsApp({ ...whatsapp, [chave]: e.target.value })} />
+              </label>
+            ))}
+          </div>
+        </>}
+        <div className="linha" style={{ flexWrap: 'wrap' }}>
+          <button type="button" className="btn" disabled={travado || !itens.length} onClick={() => configurar('salvar')}>Salvar configuração</button>
+          <button type="button" className="btn" disabled={travado} onClick={() => configurar('carregar')}>Carregar configuração</button>
           <button className="btn primario" type="submit" disabled={!estado || travado || !itens.length}>{inicio ? 'Agendar filas' : 'Iniciar filas'}</button>
           {ativo && <button className="btn perigo" type="button" onClick={async () => {
             if (!(await confirmar('Encerrar as transmissões iniciadas por esta execução e cancelar as filas?', { perigo: true }))) return
