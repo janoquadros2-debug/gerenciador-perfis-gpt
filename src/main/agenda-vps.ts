@@ -34,7 +34,7 @@ export class AgendaVps {
     await this.execucao
   }
 
-  iniciar(entrada: AgendaVpsEntrada, catalogo: LiveVps[]) {
+  iniciar(entrada: AgendaVpsEntrada, catalogo: LiveVps[], credencialGuardada: (origem: string) => string | undefined) {
     if (this.estadoAtual.executando) throw new Error('Já existe um agendamento rodando.')
     const iniciarEm = entrada.iniciarEm
     if (iniciarEm !== undefined && (!Number.isFinite(iniciarEm) || iniciarEm <= Date.now() || iniciarEm - Date.now() > 14 * 86400_000))
@@ -53,7 +53,12 @@ export class AgendaVps {
       const filaDaLive = filasDasLives.get(chave)
       if (filaDaLive && filaDaLive !== fila) throw new Error('A mesma live da VPS não pode ficar nas duas filas.')
       filasDasLives.set(chave, fila)
-      if (!origens.has(origem)) origens.set(origem, painelVps(origem, entrada.senhas[origem]))
+      if (!origens.has(origem)) {
+        const informada = entrada.senhas?.[origem]
+        const senha = informada?.trim() ? informada : credencialGuardada(origem)
+        if (!senha) throw new Error(`Informe a senha ou o token do painel ${live.vps}.`)
+        origens.set(origem, painelVps(origem, senha))
+      }
     }
     this.enviarAviso = entrada.whatsapp ? avisosWhatsApp(entrada.whatsapp) : undefined
     const controlador = new AbortController()

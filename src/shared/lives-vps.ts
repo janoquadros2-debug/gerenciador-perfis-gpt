@@ -81,3 +81,20 @@ export interface WhatsAppAgendaVps {
   modelo: string
   idioma: string
 }
+
+export interface GrupoPainelVps {
+  origem: string
+  nome: string
+  lives: LiveVps[]
+}
+
+export function agruparLivesVps(lives: LiveVps[]): GrupoPainelVps[] {
+  const grupos = new Map<string, GrupoPainelVps>()
+  for (const live of lives) {
+    const origem = new URL(live.painel).origin
+    const grupo = grupos.get(origem)
+    if (grupo) grupo.lives.push(live)
+    else grupos.set(origem, { origem, nome: live.vps, lives: [live] })
+  }
+  return [...grupos.values()]
+}
