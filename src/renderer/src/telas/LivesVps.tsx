@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import type { LiveVps, LiveVpsEntrada } from '../../../shared/lives-vps'
+import type { EstadoLiveVps, LiveVps, LiveVpsEntrada } from '../../../shared/lives-vps'
 import { chamar } from '../api'
 import { confirmar } from '../confirmar'
 
@@ -19,6 +19,9 @@ export function LivesVps() {
   const [editando, setEditando] = useState<string>()
   const [ocupado, setOcupado] = useState(false)
   const [aviso, setAviso] = useState('')
+  const [testando, setTestando] = useState<string>()
+  const [senha, setSenha] = useState('')
+  const [resultado, setResultado] = useState<EstadoLiveVps>()
 
   useEffect(() => {
     let ativa = true
@@ -28,10 +31,32 @@ export function LivesVps() {
     return () => { ativa = false }
   }, [])
 
+  const abrirTeste = (id?: string) => {
+    setTestando(id)
+    setSenha('')
+    setResultado(undefined)
+    setAviso('')
+  }
+  const testar = async (e: FormEvent<HTMLFormElement>, id: string) => {
+    e.preventDefault()
+    if (ocupado || !senha.trim()) return
+    setOcupado(true)
+    setAviso('')
+    setResultado(undefined)
+    try {
+      setResultado(await chamar<EstadoLiveVps>('testarLiveVps', id, senha))
+    } catch (erro) {
+      setAviso(mensagem(erro))
+    } finally {
+      setSenha('')
+      setOcupado(false)
+    }
+  }
+
   const editar = (item?: LiveVps) => {
+    abrirTeste()
     setEditando(item?.id)
     setForm(item ?? vazio)
-    setAviso('')
   }
   const salvar = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -55,6 +80,7 @@ export function LivesVps() {
     try {
       setLista(await chamar<LiveVps[]>('removerLiveVps', item.id))
       if (editando === item.id) editar()
+      else if (testando === item.id) abrirTeste()
       setAviso('Vínculo removido.')
     } catch (erro) {
       setAviso(mensagem(erro))
@@ -85,14 +111,30 @@ export function LivesVps() {
       {aviso && <div role="status" className="aviso">{aviso}</div>}
       {lista?.length === 0 && <span className="dica">Nenhuma live de VPS cadastrada.</span>}
       {lista?.map((item) => (
-        <article key={item.id} className="linha" style={{ flexWrap: 'wrap', overflowWrap: 'anywhere' }}>
+        <article key={item.id} style={{ display: 'grid', gap: 8, overflowWrap: 'anywhere' }}>
+          <div className="linha" style={{ flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
             <strong>{item.live}</strong>
             <div className="dica">{item.vps} · {item.painel}</div>
             <div className="dica">{item.canal}</div>
           </div>
+          <button className="btn pequeno" disabled={ocupado} onClick={() => abrirTeste(item.id)}>Testar conexão</button>
           <button className="btn pequeno" disabled={ocupado} onClick={() => editar(item)}>Editar</button>
           <button className="btn pequeno perigo" disabled={ocupado} onClick={() => remover(item)}>Remover vínculo</button>
+          </div>
+          {testando === item.id && (
+            <form className="linha" style={{ flexWrap: 'wrap', alignItems: 'end' }} onSubmit={(e) => testar(e, item.id)}>
+              <label className="campo">Senha do painel
+                <input type="password" autoComplete="off" value={senha} disabled={ocupado} onChange={(e) => setSenha(e.target.value)} />
+              </label>
+              <button type="submit" className="btn primario" disabled={ocupado || !senha.trim()}>Consultar estado</button>
+              <button type="button" className="btn" disabled={ocupado} onClick={() => abrirTeste()}>Fechar teste</button>
+              {resultado && <span className="dica" role="status">
+                ID no painel: {resultado.id} · {resultado.ligada ? 'Ligada' : 'Parada'}
+                {resultado.destinos.map((d) => ` · ${d.plataforma}: ${d.estado}`).join('')}
+              </span>}
+            </form>
+          )}
         </article>
       ))}
     </section>

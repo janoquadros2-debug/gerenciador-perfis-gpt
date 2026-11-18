@@ -37,3 +37,9 @@ export function normalizarLiveVps(entrada: LiveVpsEntrada): LiveVpsEntrada {
 
   return { vps, live, painel: painel.href, canal: 'https://www.twitch.tv/' + login.toLowerCase() }
 }
+
+export interface EstadoLiveVps {
+  id: string
+  ligada: boolean
+  destinos: { plataforma: string; estado: string }[]
+}
