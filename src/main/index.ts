@@ -170,7 +170,7 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
   salvarPreferenciasAgendaVps: (entrada: PreferenciasAgendaVps) => {
     const itens = montarItensAgenda(entrada.itens, store.livesVps)
       .map(({ liveId, fila, minutos }) => ({ liveId, fila, minutos }))
-    store.salvarPreferenciasAgendaVps({ itens, twitchClientId: entrada.twitchClientId.trim() })
+    store.salvarPreferenciasAgendaVps({ itens })
   },
   iniciarAgendaVps: (entrada: AgendaVpsEntrada) => agendaVps.iniciar(entrada, store.livesVps),
   cancelarAgendaVps: () => agendaVps.cancelar(),

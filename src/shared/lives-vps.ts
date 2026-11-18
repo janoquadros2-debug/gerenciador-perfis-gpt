@@ -53,8 +53,6 @@ export interface ItemAgendaVps {
 export interface AgendaVpsEntrada {
   itens: ItemAgendaVps[]
   senhas: Record<string, string>
-  twitchClientId: string
-  twitchSegredo: string
   iniciarEm?: number
   whatsapp?: WhatsAppAgendaVps
 }
@@ -74,7 +72,6 @@ export interface EstadoAgendaVps {
 
 export interface PreferenciasAgendaVps {
   itens: ItemAgendaVps[]
-  twitchClientId: string
 }
 
 export interface WhatsAppAgendaVps {
