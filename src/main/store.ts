@@ -36,7 +36,6 @@ export const MODELO_PADRAO: OpcoesCriacaoMassa = {
 }
 
 export const EXTRAS_PADRAO: RecursosExtras = {
-  apiCursor: false,
   retryLeituras: false,
   diarioOperacoes: false,
   historicoPersistente: false,

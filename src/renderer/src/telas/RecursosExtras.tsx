@@ -5,7 +5,6 @@ import { Opcao } from '../componentes'
 import { confirmar } from '../confirmar'
 
 const OPCOES: { chave: keyof RecursosExtras; nome: string; descricao: string }[] = [
-  { chave: 'apiCursor', nome: 'Nova listagem por cursor (Dolphin)', descricao: 'Usa a API list-cursor. Pode exigir liberação na conta Dolphin; se falhar, desligue e confira a documentação da sua conta.' },
   { chave: 'retryLeituras', nome: 'Repetir leituras temporariamente indisponíveis', descricao: 'Uma nova tentativa apenas em consultas GET após erro de conexão, limite de API ou falha do servidor. Não repete ações de criação/alteração.' },
   { chave: 'diarioOperacoes', nome: 'Diário persistente de operações', descricao: 'Registra aberturas e seus resultados. Pendências após reinício ficam marcadas para revisão, sem executar comandos duplicados.' },
   { chave: 'historicoPersistente', nome: 'Guardar histórico por perfil', descricao: 'Preserva até 60 eventos por perfil no arquivo de dados local, para revisão após reabrir o aplicativo.' },
@@ -24,7 +23,7 @@ export function RecursosExtras() {
   const carregar = () => chamar<RegistroOperacao[]>('operacoes').then(setOperacoes).catch(() => undefined)
   useEffect(() => { carregar() }, [])
   if (!cfg) return null
-  const extras: RecursosExtras = { apiCursor:false, retryLeituras:false, diarioOperacoes:false, historicoPersistente:false,
+  const extras: RecursosExtras = { retryLeituras:false, diarioOperacoes:false, historicoPersistente:false,
     categorizarFalhas:false, detectarIpsRepetidos:false, historicoTestesProxy:false,
     validadeProxyInformativa:false, validarAbertura:false,
     ...(cfg.recursosExtras ?? {}) }
