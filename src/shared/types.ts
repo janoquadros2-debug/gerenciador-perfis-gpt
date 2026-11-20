@@ -99,7 +99,6 @@ export interface ConfigJanelas {
 }
 
 export interface RecursosExtras {
-  apiCursor: boolean
   retryLeituras: boolean
   diarioOperacoes: boolean
   historicoPersistente: boolean

@@ -8,6 +8,7 @@ import { logAviso } from './log'
 import { ARGS_MANTER_ATIVAS } from './ativas'
 
 const NUVEM = 'https://dolphin-anty-api.com'
+const LISTAR_PERFIS = '/browser_profiles/list-cursor'
 const local = () => `http://localhost:${store.config.portaLocalDolphin}`
 
 async function nuvem<T = any>(caminho: string, init: RequestInit = {}): Promise<T> {
@@ -38,6 +39,9 @@ async function nuvem<T = any>(caminho: string, init: RequestInit = {}): Promise<
   if (!r.ok) {
     if (r.status === 401) throw new Error('Token do Dolphin inválido ou expirado.')
     if (r.status === 402) throw new Error('Essa função exige um plano pago do Dolphin.')
+    if (r.status === 404 && caminho.startsWith(LISTAR_PERFIS + '?')) {
+      throw new Error('O Dolphin não disponibilizou a listagem por cursor para esta conta (HTTP 404). Peça a ativação ao suporte do Dolphin.')
+    }
     if (r.status === 429) throw new Error('Muitas requisições ao Dolphin. Aguarde um pouco.')
     let detalhe = texto.slice(0, 200)
     try {
@@ -86,7 +90,7 @@ export function esquecerLogin() {
 export async function testarConexao(): Promise<{ nuvem: boolean; local: boolean; erro?: string }> {
   const res = { nuvem: false, local: false, erro: undefined as string | undefined }
   try {
-    await nuvem('/browser_profiles?limit=1')
+    await nuvem(LISTAR_PERFIS + '?limit=1')
     res.nuvem = true
   } catch (e: any) {
     res.erro = e.message
@@ -120,40 +124,27 @@ function paraPerfil(p: any): Perfil {
   }
 }
 
-async function listarComCursor(): Promise<Perfil[]> {
+export async function listarPerfis(): Promise<Perfil[]> {
   const todos: Perfil[] = []
-  let cursor: string | undefined
+  let caminho = LISTAR_PERFIS + '?limit=50'
   const visitados = new Set<string>()
-  for (let n = 0; n < 250; n++) {
-    const caminho: string = '/browser_profiles/list-cursor?limit=100' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')
-    const r: any = await nuvem(caminho)
-    const lista = Array.isArray(r.data) ? r.data : Array.isArray(r.data?.data) ? r.data.data : []
+  for (;;) {
+    const r = await nuvem(caminho)
+    const lista = Array.isArray(r?.data) ? r.data : r?.data?.data
+    if (!Array.isArray(lista)) throw new Error('O Dolphin retornou uma lista de perfis inválida.')
     todos.push(...lista.map(paraPerfil))
     const prox: unknown = r.next_page_url ?? r.meta?.next_page_url ?? r.pagination?.next_page_url
-    if (typeof prox !== 'string' || !prox || !lista.length) break
-    const u = new URL(prox, NUVEM)
-    if (u.origin !== NUVEM) throw new Error('A API retornou uma URL de cursor externa ao Dolphin.')
-    cursor = u.searchParams.get('cursor') ?? undefined
-    if (!cursor || visitados.has(cursor)) break
+    if (prox == null || prox === '') return todos
+    if (typeof prox !== 'string') throw new Error('O Dolphin retornou uma página inválida.')
+    const u = new URL(prox, NUVEM + caminho)
+    const cursor = u.searchParams.get('cursor')
+    if (u.origin !== NUVEM || u.pathname !== LISTAR_PERFIS || !cursor) {
+      throw new Error('O Dolphin retornou um endereço de paginação inválido.')
+    }
+    if (visitados.has(cursor)) throw new Error('O Dolphin repetiu uma página de perfis.')
     visitados.add(cursor)
+    caminho = u.pathname + u.search
   }
-  return todos
-}
-
-export async function listarPerfis(): Promise<Perfil[]> {
-  if (store.config.recursosExtras?.apiCursor) return listarComCursor()
-
-  const todos: Perfil[] = []
-  let pagina = 1
-  for (;;) {
-    const r = await nuvem(`/browser_profiles?limit=50&page=${pagina}`)
-    const lista: any[] = r.data ?? []
-    todos.push(...lista.map(paraPerfil))
-    const ultima = Number(r.last_page ?? r.meta?.last_page ?? 1)
-    if (pagina >= ultima || lista.length === 0) break
-    pagina++
-  }
-  return todos
 }
 
 function proxyParaDolphin(p?: Proxy | null) {
