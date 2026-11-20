@@ -1,5 +1,7 @@
+import { credenciaisVps } from './credenciais-vps'
+import { AgendaVps, montarItensAgenda } from './agenda-vps'
 import { consultarLiveVps } from './painel-vps'
-import { normalizarLiveVps, type LiveVpsEntrada } from '../shared/lives-vps'
+import { normalizarLiveVps, type AgendaVpsEntrada, type LiveVpsEntrada, type PreferenciasAgendaVps } from '../shared/lives-vps'
 // Ponto de partida do programa: cria a janela e liga a interface ao motor.
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
 import fs from 'node:fs'
@@ -27,6 +29,7 @@ import type { ConfigRede, EntradaLog } from '../shared/types'
 
 let janela: BrowserWindow | null = null
 const motor = new Motor()
+const agendaVps = new AgendaVps()
 
 function enviarTela(canal: string, dado: unknown) {
   janela?.webContents.send(canal, dado)
@@ -163,11 +166,32 @@ const acoes: Record<string, (...args: any[]) => unknown> = {
     return { cancelado: false, caminho: r.filePath }
   },
 
+  estadoAgendaVps: () => agendaVps.estado(),
+  carregarPreferenciasAgendaVps: () => store.preferenciasAgendaVps,
+  salvarPreferenciasAgendaVps: (entrada: PreferenciasAgendaVps) => {
+    const itens = montarItensAgenda(entrada.itens, store.livesVps)
+      .map(({ liveId, fila, minutos }) => ({ liveId, fila, minutos }))
+    store.salvarPreferenciasAgendaVps({ itens })
+  },
+  iniciarAgendaVps: (entrada: AgendaVpsEntrada) => agendaVps.iniciar(entrada, store.livesVps, credenciaisVps.obter),
+  cancelarAgendaVps: () => agendaVps.cancelar(),
   listarLivesVps: () => store.livesVps,
-  testarLiveVps: (id: string, senha: string) => {
+  listarCredenciaisVps: () => credenciaisVps.origens(),
+  testarLiveVps: async (id: string, senha?: string, guardar = false) => {
     const live = store.livesVps.find((item) => item.id === id)
     if (!live) throw new Error('Live cadastrada não encontrada.')
-    return consultarLiveVps(live.painel, live.live, senha)
+    const origem = new URL(live.painel).origin
+    const informada = senha?.trim() ? senha : undefined
+    const credencial = informada ?? credenciaisVps.obter(origem)
+    if (!credencial) throw new Error('Digite a senha ou o token do painel.')
+    const estado = await consultarLiveVps(live.painel, live.live, credencial)
+    if (guardar && informada) credenciaisVps.guardar(origem, informada)
+    return estado
+  },
+  esquecerCredencialVps: (id: string) => {
+    const live = store.livesVps.find((item) => item.id === id)
+    if (!live) throw new Error('Live cadastrada não encontrada.')
+    credenciaisVps.esquecer(new URL(live.painel).origin)
   },
   salvarLiveVps: (entrada: LiveVpsEntrada, id?: string) => {
     const vinculada = normalizarLiveVps(entrada)
@@ -605,7 +629,9 @@ async function adicionarNovos(n: number) {
 }
 
 // Ações que sempre rodam NESTE PC, mesmo no modo Principal.
+const ACESSO_LOCAL_VPS = new Set(['listarCredenciaisVps', 'esquecerCredencialVps', 'testarLiveVps', 'iniciarAgendaVps'])
 const LOCAIS = new Set([
+  ...ACESSO_LOCAL_VPS,
   'versao', 'edicao', 'estadoAtualizacao', 'verificarAtualizacao', 'atualizarAgora', 'estadoAtualizacaoOutro', 'atualizarOutroPc',
   'rede', 'salvarRede', 'procurarPcs', 'novoCodigo', 'salvarPcRemoto', 'removerPcRemoto', 'selecionarPcDestino',
   'listarFavoritosPerfis', 'salvarFavoritoPerfil', 'apagarFavoritoPerfil',
@@ -615,7 +641,9 @@ const LOCAIS = new Set([
   'galeria', 'lerDaGaleria', 'apagarDaGaleria', 'abrirPastaGaleria', 'mostrarNaPasta',
   'sunoJaSalvos', 'sunoSalvar', 'sunoLog', 'sunoStatus', 'sunoEntrar', 'sunoAbrir', 'sunoFechar', 'sunoApi', 'sunoPreencher', 'sunoPedido', 'sunoEsquecerPedido', 'sunoGuardarSozinho', 'sunoNovas', 'sunoPuxarVistas',
   'hardwareLocal', 'hardwareTodos', 'diagnosticoRede',
-  'listarLivesVps', 'testarLiveVps', 'salvarLiveVps', 'removerLiveVps',
+  'carregarPreferenciasAgendaVps', 'salvarPreferenciasAgendaVps',
+  'estadoAgendaVps', 'cancelarAgendaVps',
+  'listarLivesVps', 'salvarLiveVps', 'removerLiveVps',
   'obsConfig', 'salvarObsConfig', 'obsStatus', 'obsAbrir', 'obsCena', 'obsPrincipal', 'obsCanal', 'obsTodos', 'promptConfig', 'salvarPromptConfig', 'gerarPrompt'
 ])
 
@@ -645,7 +673,10 @@ ipcMain.handle('chamar', async (_e, nome: string, ...args: unknown[]) => {
 const rede = new RedeCentral({
   versao: app.getVersion(),
   edicao: EDICAO,
-  executar: executarLocal,
+  executar: (nome, args) => {
+    if (ACESSO_LOCAL_VPS.has(nome)) throw new Error('As credenciais de VPS só podem ser usadas neste computador.')
+    return executarLocal(nome, args)
+  },
   aoMudarStatus: (s) => enviarTela('rede', s),
   aoEvento: (canal, dado) => {
     if (canal === 'progresso-criacao-destino') {
@@ -813,7 +844,17 @@ async function apagarPerfisAoSair() {
 }
 
 let saindo = false
+let encerrandoAgenda = false
 app.on('before-quit', async (e) => {
+  if (agendaVps.estado().executando) {
+    e.preventDefault()
+    if (encerrandoAgenda) return
+    encerrandoAgenda = true
+    await agendaVps.cancelarEAguardar().catch(() => undefined)
+    encerrandoAgenda = false
+    app.quit()
+    return
+  }
   salvarAgora()
   const cfg = store.config
   if (saindo || (!cfg.fecharTodosAoSair && !cfg.apagarAoSair)) return

@@ -43,3 +43,58 @@ export interface EstadoLiveVps {
   ligada: boolean
   destinos: { plataforma: string; estado: string }[]
 }
+
+export interface ItemAgendaVps {
+  liveId: string
+  fila: 1 | 2
+  minutos: number
+}
+
+export interface AgendaVpsEntrada {
+  itens: ItemAgendaVps[]
+  senhas: Record<string, string>
+  iniciarEm?: number
+  whatsapp?: WhatsAppAgendaVps
+}
+
+export interface EstadoAgendaVps {
+  executando: boolean
+  iniciarEm?: number
+  filas: {
+    fila: 1 | 2
+    etapa: 'aguardando' | 'iniciando' | 'ao-vivo' | 'encerrando' | 'concluida' | 'cancelada' | 'falha'
+    live?: string
+    terminaEm?: number
+    detalhe?: string
+  }[]
+  eventos: { hora: number; fila: 1 | 2; texto: string }[]
+}
+
+export interface PreferenciasAgendaVps {
+  itens: ItemAgendaVps[]
+}
+
+export interface WhatsAppAgendaVps {
+  telefoneId: string
+  destinatario: string
+  token: string
+  modelo: string
+  idioma: string
+}
+
+export interface GrupoPainelVps {
+  origem: string
+  nome: string
+  lives: LiveVps[]
+}
+
+export function agruparLivesVps(lives: LiveVps[]): GrupoPainelVps[] {
+  const grupos = new Map<string, GrupoPainelVps>()
+  for (const live of lives) {
+    const origem = new URL(live.painel).origin
+    const grupo = grupos.get(origem)
+    if (grupo) grupo.lives.push(live)
+    else grupos.set(origem, { origem, nome: live.vps, lives: [live] })
+  }
+  return [...grupos.values()]
+}
