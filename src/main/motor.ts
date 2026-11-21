@@ -164,33 +164,56 @@ export class Motor extends EventEmitter {
     this.avisarMudanca()
   }
 
-  // Fecha os navegadores cujo tempo acabou (com o programa pausado, espera retomar).
+  // Os prazos são verificados mesmo após erro do site. Fechamento tem prioridade
+  // sobre F5. Cada disparo deixa registros para diagnosticar falhas reais no Dolphin.
   private verificarTempos() {
     if (this.pausado || this.trocandoSite || this.encerrandoCiclo) return
     const agora = Date.now()
-    // O agendamento do F5 não depende do status da página após erro HTTP/timeout.
     for (const s of this.sessoes.values()) {
+      if (s.fechando) continue
+      const venceFechamento = !!s.info.fechaEm && s.info.fechaEm <= agora
+      // Um perfil preso em "abrindo" não deve bloquear o fechamento para sempre.
+      const aberturaTravada = s.info.status === 'abrindo' && agora - s.info.abertoEm >= 90_000
+      if (venceFechamento && (s.info.status !== 'abrindo' || aberturaTravada)) {
+        logInfo(`Navegador #${s.info.slot}`, `Temporizador de fechamento disparado para ${s.perfil.nome}.`)
+        void this.fecharPorTempo(s).catch((e) => {
+          logAviso(`Navegador #${s.info.slot}`, `Fechamento agendado falhou: ${traduzirErro(e)}.`)
+          if (this.sessoes.get(s.info.slot) === s) {
+            s.fechando = false
+            s.info.fechando = false
+          }
+          this.avisarMudanca()
+        })
+        continue
+      }
       if (!s.recarregar || !s.info.proximoF5 || s.info.proximoF5 > agora ||
-          s.f5EmAndamento || s.fechando || s.info.status === 'abrindo' || !s.browser?.connected) continue
+          s.f5EmAndamento || s.info.status === 'abrindo') continue
+      if (!s.browser?.connected) {
+        // Não deixar o contador em zero ao detectar desconexão.
+        logAviso(`Navegador #${s.info.slot}`, 'F5 agendado: navegador desconectado; tentando restabelecer.')
+      }
       s.f5EmAndamento = true
+      logInfo(`Navegador #${s.info.slot}`, `Temporizador F5 disparado para ${s.perfil.nome}.`)
+      // O próximo prazo é estabelecido em finally, até quando a página falha.
       s.info.proximoF5 = undefined
-      void this.f5(s.info.slot).catch((e) => {
-        logAviso(`Navegador #${s.info.slot}`, `Falha no F5 agendado: ${traduzirErro(e)}`)
-      }).finally(() => {
-        s.f5EmAndamento = false
-        if (this.sessoes.get(s.info.slot) !== s || !s.recarregar || s.fechando) return
-        const intervalo = sortearDuracao(s.recarregar)
-        if (intervalo) {
-          s.info.proximoF5 = Date.now() + intervalo
-          logInfo(`Navegador #${s.info.slot}`,
-            `F5 concluído; próximo intervalo sorteado: ${Math.ceil(intervalo / 1000)} s (às ${new Date(s.info.proximoF5).toLocaleTimeString('pt-BR')}).`)
-        }
-        this.avisarMudanca()
+      this.avisarMudanca()
+      let timeout: NodeJS.Timeout | undefined
+      const limite = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('F5 excedeu 60 segundos')), 60_000)
       })
+      void Promise.race([this.f5(s.info.slot), limite])
+        .catch((e) => logAviso(`Navegador #${s.info.slot}`, `Falha no F5 agendado: ${traduzirErro(e)}`))
+        .finally(() => {
+          if (timeout) clearTimeout(timeout)
+          s.f5EmAndamento = false
+          if (this.sessoes.get(s.info.slot) !== s || !s.recarregar || s.fechando) return
+          const intervalo = sortearDuracao(s.recarregar)
+          s.info.proximoF5 = intervalo ? Date.now() + intervalo : undefined
+          if (intervalo) logInfo(`Navegador #${s.info.slot}`,
+            `Novo F5 programado em ${Math.ceil(intervalo / 1000)} s.`)
+          this.avisarMudanca()
+        })
     }
-    // tempo aberto acabou: fecha (e, se escolhido, abre de novo com um tempo novo)
-    const vencidos = [...this.sessoes.values()].filter((s) => s.info.fechaEm && s.info.fechaEm <= agora && !s.fechando && s.info.status !== 'abrindo')
-    for (const s of vencidos) this.fecharPorTempo(s).catch(() => undefined)
   }
 
   // aviso vindo de fora do motor (ex.: "+1 / Adicionar")
